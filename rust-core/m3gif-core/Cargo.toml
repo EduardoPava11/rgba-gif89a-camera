@@ -1,0 +1,19 @@
+[package]
+name = "m3gif-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Image processing
+gif = "0.12"
+color_quant = "1.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_cbor = "0.11"
+serde_bytes = "0.11"
+
+# Utilities
+anyhow = "1.0"
+log = "0.4"
+crc32fast = "1.4"

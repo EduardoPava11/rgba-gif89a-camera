@@ -1,0 +1,340 @@
+# Claude MCP Task Configuration for RGBA→GIF89a Camera App
+version: "1.0"
+project: rgba-gif89a-camera
+
+# Technical Specifications (Locked)
+cbor_schema:
+  version: 1
+  fields:
+    - v: "Schema version (uint32)"
+    - ts: "Timestamp milliseconds (uint64)"
+    - w: "Width=729 (uint32)"
+    - h: "Height=729 (uint32)"
+    - fmt: "RGBA8888 (string)"
+    - stride: "Row stride in bytes (uint32)"
+    - premul: "Alpha premultiplied=false (bool)"
+    - colorspace: "sRGB (string)"
+    - rgba: "Raw bytes with @ByteString (bytes)"
+
+frame_processing:
+  frame1_bootstrap:
+    - "Capture 729×729 RGBA from CameraX"
+    - "Downsample with zero feedback → RGB₁(81×81), A₁(81×81)"
+    - "Build P₁ via A-weighted Oklab k-means (256 colors)"
+    - "Index + Floyd-Steinberg dither (strength ∝ A₁)"
+    - "Save state: (P₁, A₁, E₁, U₁)"
+  
+  frames_2_to_81:
+    - "Capture 729×729 RGBA from CameraX"
+    - "Downsample with feedback (A_{t-1}, E_{t-1}, U_{t-1})"
+    - "Warm-start from P_{t-1}, add ≤16 new colors"
+    - "Quick k-means refinement in Oklab"
+    - "Update state: (P_t, A_t, E_t, U_t)"
+  
+  post_processing:
+    - "Build global palette from all 81 frames"
+    - "A-weighted histogram → Oklab k-means"
+    - "Remap all frames to global palette"
+    - "Write GIF89a with delay=4, loop=forever"
+
+phases:
+  - id: phase0
+    name: "Ground Rules & Scaffolding"
+    duration: "2 days"
+    tasks:
+      - id: p0t1
+        name: "Create workspace structure"
+        command: |
+          mkdir -p android/app/src/main/java/com/rgbagif
+          mkdir -p rust-core/{src,assets}
+          mkdir -p uniffi
+        acceptance: "Directories exist with proper structure"
+      
+      - id: p0t2
+        name: "Configure cargo-ndk"
+        command: |
+          cd rust-core
+          rustup target add aarch64-linux-android armv7-linux-androideabi
+          cat > .cargo/config.toml << 'EOF'
+          [target.aarch64-linux-android]
+          linker = "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android26-clang"
+          EOF
+        acceptance: "cargo ndk builds successfully"
+      
+      - id: p0t3
+        name: "Generate UniFFI bindings"
+        command: |
+          cd rust-core
+          cargo run --bin uniffi-bindgen generate src/gifpipe.udl --language kotlin --out-dir ../android/app/src/main/java
+        acceptance: "Kotlin bindings generated without errors"
+
+  - id: phase1
+    name: "Burn Downsizer with 9×9 Go Head"
+    duration: "1 week"
+    tasks:
+      - id: p1t1
+        name: "Implement Go network forward pass"
+        acceptance: |
+          - Input: RGBA [1,4,729,729] + feedback [1,3,81,81]
+          - Output: RGB [1,3,81,81] + Alpha [1,1,81,81]
+          - Deterministic output for fixed input
+      
+      - id: p1t2
+        name: "Load pre-trained weights"
+        command: |
+          # Export from training repo
+          cd ~/neural-camera-app/training
+          cargo run --bin export_weights -- --format burn-default --output go9x9_default_full.mpk
+          
+          # Copy to app
+          cp go9x9_default_full.mpk ~/rgba-gif89a-camera/rust-core/assets/
+          
+          # Load in app using Burn DefaultFileRecorder
+          # let recorder = DefaultFileRecorder::<FullPrecisionSettings>::new();
+          # let record = recorder.load("assets/go9x9_default_full.mpk", &device)?;
+        acceptance: "Model loads .mpk weights without error"
+      
+      - id: p1t3
+        name: "Create Kotlin preview overlay"
+        acceptance: |
+          - Display alpha heatmap over camera preview
+          - Update at 10+ FPS
+          - Color scale: blue (low) to red (high)
+
+  - id: phase2
+    name: "Alpha-Aware Palette + Indexer"
+    duration: "1 week"
+    tasks:
+      - id: p2t1
+        name: "Implement weighted k-means"
+        test: |
+          cargo test -p gifpipe test_weighted_kmeans
+        acceptance: |
+          - Palette ≤ 256 colors
+          - Higher weight pixels influence centers more
+          - Deterministic for fixed seed
+      
+      - id: p2t2
+        name: "Add Floyd-Steinberg dithering"
+        acceptance: |
+          - Error diffusion scaled by alpha
+          - No dithering where alpha < 0.1
+          - Smooth gradients in high-alpha regions
+      
+      - id: p2t3
+        name: "Wire GIF encoder"
+        command: |
+          # Test GIF output
+          cargo run --example encode_test
+        acceptance: "Valid GIF89a file with correct header"
+
+  - id: phase3
+    name: "End-to-End 81-Frame Capture"
+    duration: "1 week"
+    tasks:
+      - id: p3t1
+        name: "Implement bounded channel"
+        acceptance: |
+          - Max 3 frames in flight
+          - Drop old frames on overflow
+          - No OOM under pressure
+      
+      - id: p3t2
+        name: "Wire CameraX to pipeline"
+        command: |
+          # Run on device
+          adb install app/build/outputs/apk/debug/app-debug.apk
+          adb shell am start -n com.rgbagif/.MainActivity
+        acceptance: "Camera preview shows, capture button works"
+      
+      - id: p3t3
+        name: "Capture and save dual GIF outputs"
+        test: |
+          # Capture 81 frames
+          # Verify both outputs
+          file capture_global.gif | grep "GIF image data"
+          file capture_perframe.gif | grep "GIF image data"
+        acceptance: |
+          - 81 frames captured at 729×729 RGBA8888
+          - Global palette GIF (production)
+          - Per-frame palette GIF (diagnostic)
+          - Both play in Gallery app
+
+  - id: phase4
+    name: "Quality & Stability"
+    duration: "1 week"
+    tasks:
+      - id: p4t1
+        name: "Tune temporal stability"
+        metrics:
+          - palette_drift: "<20% change per frame"
+          - flicker_score: "<5% pixel change"
+          - new_colors_per_frame: "≤16"
+      
+      - id: p4t2
+        name: "Profile performance"
+        command: |
+          # CPU profiling
+          cargo build --release --features profiling
+          # Run with simpleperf on device
+        acceptance: |
+          - Frame processing <50ms
+          - Memory usage <100MB
+          - No frame drops at 24fps
+      
+      - id: p4t3
+        name: "A/B test quantizers"
+        test: |
+          # Compare k-means vs libimagequant
+          cargo bench --bench quantizer_comparison
+        acceptance: "Document quality/speed tradeoffs"
+
+  - id: phase5
+    name: "Nice-to-Haves"
+    duration: "Optional"
+    tasks:
+      - id: p5t1
+        name: "Global vs local palette toggle"
+        acceptance: "UI switch changes palette mode"
+      
+      - id: p5t2
+        name: "Debug visualizations"
+        acceptance: |
+          - Export alpha maps as PNG
+          - Export palette as swatch image
+          - Export per-frame error heatmaps
+      
+      - id: p5t3
+        name: "GPU backend exploration"
+        command: |
+          # Test wgpu backend
+          cargo build --features wgpu
+        acceptance: "Document speedup vs complexity"
+
+quality_gates:
+  - name: "Alpha Verification"
+    test: |
+      # Runtime probe to check camera alpha output
+      ./test_alpha_probe.sh
+    pass_criteria: "<0.01% pixels have A≠255 (camera outputs opaque)"
+  
+  - name: "Determinism"
+    test: |
+      # Same input -> same output hash
+      ./test_determinism.sh
+    pass_criteria: "Hash matches golden reference"
+  
+  - name: "Memory Safety"
+    test: |
+      # Valgrind or ASAN
+      cargo test --features asan
+    pass_criteria: "No leaks or overflows"
+  
+  - name: "GIF Compliance"
+    test: |
+      # Validate against spec
+      gifsicle --info capture.gif
+    pass_criteria: "No warnings, plays in all viewers"
+  
+  - name: "Performance Budget"
+    metrics:
+      frame_time_p50: "<30ms"
+      frame_time_p99: "<50ms"
+      memory_peak: "<100MB"
+      gif_size_81frames: "<500KB"
+
+kernel_selection_menu:
+  - id: 1
+    type: "Box 3×3"
+    use_case: "Flat regions"
+  - id: 2
+    type: "Gaussian 3×3"
+    use_case: "Default choice"
+  - id: 3
+    type: "Box 5×5"
+    use_case: "Large flat areas"
+  - id: 4
+    type: "Gaussian 5×5"
+    use_case: "Gradients"
+  - id: 5
+    type: "Edge-preserving"
+    use_case: "High-detail areas"
+  - id: 6
+    type: "Lanczos"
+    use_case: "Fine details"
+
+shell_commands:
+  build_rust:
+    description: "Build Rust for Android"
+    command: |
+      cd rust-core
+      export ANDROID_NDK_HOME=$HOME/Library/Android/sdk/ndk/27.0.12077973
+      cargo ndk -t arm64-v8a -t armeabi-v7a build --release
+  
+  generate_bindings:
+    description: "Generate UniFFI Kotlin bindings"
+    command: |
+      cd rust-core
+      cargo run --bin uniffi-bindgen generate src/gifpipe.udl \
+        --language kotlin \
+        --out-dir ../android/app/src/main/java
+  
+  install_app:
+    description: "Build and install Android app"
+    command: |
+      cd android
+      ./gradlew assembleDebug
+      adb install -r app/build/outputs/apk/debug/app-debug.apk
+  
+  capture_test:
+    description: "Test capture on device"
+    command: |
+      adb shell am start -n com.rgbagif/.MainActivity
+      sleep 2
+      # Tap capture button
+      adb shell input tap 540 1350
+      # Wait for capture
+      sleep 10
+      # Check for GIF
+      adb shell ls /sdcard/Android/data/com.rgbagif/files/*.gif
+
+dependencies:
+  rust:
+    - burn: "0.15"
+    - burn-ndarray: "0.15"
+    - gif: "0.13"
+    - palette: "0.7"
+    - uniffi: "0.28"
+    - image: "0.25"
+    - libimagequant: "4.0"  # optional
+  
+  android:
+    - camerax: "1.3.0"
+    - compose: "1.5.4"
+    - kotlin: "1.9.0"
+    - gradle: "8.1.0"
+    - ndk: "27.0.12077973"
+
+constraints:
+  memory:
+    peak: "100MB"
+    per_frame: "12MB"  # 729×729×4 input + 81×81×4 output
+    bounded_channel: 2  # Max frames in flight
+  
+  performance:
+    capture_fps: 24
+    processing_latency: "50ms"
+    ui_fps: 60
+  
+  quality:
+    ssim_min: 0.92
+    palette_stability: 0.80
+    temporal_flicker_max: 0.05
+  
+  output:
+    gif_size_max: "500KB"
+    dimensions: "81×81"
+    frames: 81
+    palette: "≤256 colors"
+    delay: 4  # 4/100 sec ≈ 25fps
+    loop: "infinite"

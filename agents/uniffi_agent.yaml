@@ -1,0 +1,254 @@
+name: uniffi_agent
+version: "1.0"
+type: specialist
+domain: kotlin_rust_interface
+
+system_prompt: |
+  You are a UniFFI interface specialist managing the Kotlin↔Rust boundary for the GIF pipeline.
+  Your responsibilities:
+  - Design and maintain the UniFFI .udl interface definition
+  - Handle ByteArray transfers with proper ownership semantics
+  - Implement queue depth management (max 2 frames in flight)
+  - Surface Rust errors cleanly to Kotlin/Android UI layer
+  - Optimize for minimal copying and zero-copy where possible
+  
+  Key technical constraints:
+  - Primary boundary: push_frame(ByteArray rgba, FrameInfo) -> Result<(), GifPipeError>
+  - Queue depth: Max 2 RGBA frames (2×2.1MB) in Rust processing queue
+  - Error handling: Rust Result types must map to Kotlin exceptions
+  - Threading: Kotlin UI thread ↔ Rust background processing thread
+  - Memory: ByteArray ownership transferred to Rust, no double-buffering
+
+tools:
+  - name: read_file
+    paths:
+      - "rust-core/src/gifpipe.udl"
+      - "rust-core/src/lib.rs"
+      - "rust-core/uniffi-bindgen.rs"
+      - "app/src/main/java/com/rgbagif/pipeline/*.kt"
+      - "rust-core/build.rs"
+      - "app/build.gradle.kts"
+  - name: edit_file
+    paths:
+      - "rust-core/src/gifpipe.udl"
+      - "rust-core/src/lib.rs"
+      - "app/src/main/java/com/rgbagif/pipeline/GifPipeline.kt"
+      - "agents/uniffi_agent.yaml"
+  - name: run_command
+    commands:
+      - "cargo run --bin uniffi-bindgen generate src/gifpipe.udl --language kotlin --out-dir ../app/src/main/java"
+      - "./rust-core/build_android.sh"
+      - "./gradlew :app:assembleDebug"
+      - "adb install -r app/build/outputs/apk/debug/app-debug.apk"
+      - "adb shell logcat | grep 'GifPipeline\\|UniFFI'"
+  - name: analyze_memory_usage
+    description: "Profile memory usage across Kotlin-Rust boundary"
+
+responsibilities:
+  primary:
+    - "Maintain gifpipe.udl interface definition with proper types"
+    - "Implement bounded queue in Rust with backpressure handling"
+    - "Map Rust GifPipeError variants to Kotlin exceptions"
+    - "Generate and validate Kotlin bindings via uniffi-bindgen"
+    - "Optimize ByteArray transfers (avoid unnecessary copying)"
+  
+  quality_gates:
+    - "Zero memory leaks across Kotlin↔Rust boundary"
+    - "Queue depth never exceeds 2 frames (4.2MB total)"
+    - "Error propagation: Rust panics → clean Kotlin exceptions"
+    - "Interface generation: Clean Kotlin code, no warnings"
+
+mcp:
+  version: 1
+  references:
+    - "https://docs.anthropic.com/en/docs/claude-code/sub-agents"
+    - "https://mozilla.github.io/uniffi-rs/"
+  model: "claude-3.7-sonnet"
+  context_size: 200000
+  allow_chain_of_thought: true
+  tool_limits:
+    run_command:
+      timeout_ms: 90000
+      allow_network: false
+    edit_file:
+      max_edits_per_run: 5
+    read_file:
+      max_bytes: 262144
+  env:
+    RUST_LOG: "info"
+    ANDROID_NDK_HOME: "$ANDROID_NDK_HOME"
+
+interfaces:
+  input:
+    - udl_interface: "gifpipe.udl definition"
+    - rust_impl: "Pipeline struct implementing interface"
+    - kotlin_caller: "Android app code using generated bindings"
+  
+  output:
+    - generated_bindings: "Kotlin/JNA bindings in app/src/main/java/"
+    - native_library: "libgifpipe.so for Android architectures"
+    - error_mapping: "GifPipeError → Kotlin Exception mapping"
+
+contracts:
+  invariants:
+    - "Queue depth ≤2 frames; push_frame() blocks if queue full."
+    - "All ByteArray transfers have clear ownership (Kotlin→Rust)."
+    - "Generated Kotlin code must compile without warnings."
+    - "Rust panics must not crash Android app (proper error boundaries)."
+  preconditions:
+    - "gifpipe.udl syntax is valid UniFFI interface definition."
+    - "Rust implementation matches all interface signatures exactly."
+    - "Android NDK properly configured for cross-compilation."
+  postconditions:
+    - "Generated bindings work identically to hand-written JNI."
+    - "Memory usage bounded: max 4.2MB queued RGBA data."
+    - "Error messages preserved across language boundary."
+
+code_templates:
+  udl_interface: |
+    namespace gifpipe {};
+    
+    // Frame metadata
+    dictionary FrameInfo {
+        u32 width;
+        u32 height; 
+        u64 timestamp_ms;
+    };
+    
+    // Session configuration
+    dictionary SessionConfig {
+        boolean use_global_palette;
+        boolean allow_palette_growth;
+        u32 max_frames;
+        u32 output_size;
+    };
+    
+    // Main pipeline interface
+    interface Pipeline {
+        [Throws=GifPipeError]
+        constructor(SessionConfig cfg);
+        
+        [Throws=GifPipeError]
+        void push_frame(sequence<u8> rgba, FrameInfo info);
+        
+        [Throws=GifPipeError]
+        void finalize_to_path(string output_path);
+        
+        Feedback? latest_feedback();
+        PipelineStats get_stats();
+    };
+    
+    [Error]
+    enum GifPipeError {
+        "InitializationError",
+        "FrameProcessingError", 
+        "QuantizationError",
+        "IoError",
+        "InvalidConfiguration",
+        "QueueFullError"
+    };
+  
+  bounded_queue_impl: |
+    use std::sync::mpsc::{sync_channel, SyncSender, Receiver};
+    
+    pub struct Pipeline {
+        sender: SyncSender<(Vec<u8>, FrameInfo)>,
+        // ... other fields
+    }
+    
+    impl Pipeline {
+        pub fn new(config: SessionConfig) -> Result<Self, GifPipeError> {
+            let (sender, receiver) = sync_channel(2); // Max 2 frames queued
+            
+            // Spawn background processing thread
+            let processor = FrameProcessor::new(config, receiver)?;
+            std::thread::spawn(move || processor.run());
+            
+            Ok(Pipeline { sender })
+        }
+        
+        pub fn push_frame(&self, rgba: Vec<u8>, info: FrameInfo) -> Result<(), GifPipeError> {
+            self.sender.try_send((rgba, info))
+                .map_err(|_| GifPipeError::QueueFullError)
+        }
+    }
+  
+  kotlin_error_handling: |
+    // Generated by UniFFI - example usage
+    class GifPipeline private constructor(private val pipeline: Pipeline) {
+        
+        companion object {
+            fun create(config: SessionConfig): GifPipeline {
+                return try {
+                    val pipeline = Pipeline(config)
+                    GifPipeline(pipeline)
+                } catch (e: GifPipeException.InitializationError) {
+                    throw IllegalStateException("Failed to initialize GIF pipeline: ${e.message}")
+                }
+            }
+        }
+        
+        fun pushFrame(rgbaData: ByteArray, frameInfo: FrameInfo) {
+            try {
+                pipeline.pushFrame(rgbaData.toList(), frameInfo)
+            } catch (e: GifPipeException.QueueFullError) {
+                Log.w(TAG, "Frame queue full, dropping frame")
+            } catch (e: GifPipeException.FrameProcessingError) {
+                throw RuntimeException("Frame processing failed: ${e.message}")
+            }
+        }
+    }
+
+runbooks:
+  interface_validation:
+    steps:
+      - "Run uniffi-bindgen on gifpipe.udl, check for syntax errors."
+      - "Compile generated Kotlin code, ensure no compilation warnings."
+      - "Build Rust library for all Android targets (arm64, x86_64)."
+      - "Verify .so files copied to correct jniLibs directories."
+  queue_backpressure_test:
+    steps:
+      - "Send frames faster than processing capacity."
+      - "Verify queue depth caps at 2, oldest frames dropped."
+      - "Ensure no memory growth beyond 4.2MB queue limit."
+  error_propagation_test:
+    steps:
+      - "Trigger each GifPipeError variant from Rust side."
+      - "Verify clean exception mapping on Kotlin side."
+      - "Assert no native crashes, only handled exceptions."
+
+acceptance_tests:
+  - test_name: "udl_syntax_validation"
+    command: "uniffi-bindgen generate src/gifpipe.udl --language kotlin"
+    expected: "Clean generation with no syntax errors"
+  
+  - test_name: "kotlin_compilation"
+    input: "Generated bindings + Android project"
+    assertion: "Compiles without warnings or errors"
+  
+  - test_name: "queue_depth_limit"
+    scenario: "Push 5 frames rapidly"
+    assertion: "Max 2 frames queued, others return QueueFullError"
+  
+  - test_name: "memory_bounds"
+    measurement: "Peak memory during queue saturation"
+    assertion: "≤4.2MB for RGBA queue + reasonable overhead"
+  
+  - test_name: "error_boundary"
+    input: "Invalid RGBA buffer (wrong size)"
+    expected: "Clean Kotlin exception, no native crash"
+  
+  - test_name: "cross_compilation"
+    targets: ["aarch64-linux-android", "x86_64-linux-android"]
+    assertion: "All .so files build and load correctly"
+  
+  - test_name: "round_trip_integrity"
+    input: "Complex FrameInfo + large RGBA ByteArray"
+    assertion: "Data unchanged after Kotlin→Rust→Kotlin round-trip"
+
+device_profiles:
+  snapdragon_8_gen_2:
+    cpu: "Kryo Prime 1×3.2GHz + Gold + Silver"
+    ram_gb: 8
+    os: "Android 14"
+    notes: "Primary target for UniFFI performance validation"

@@ -1,0 +1,293 @@
+name: qa_bench_agent
+version: "1.0"
+type: specialist
+domain: quality_assurance_benchmarking
+
+system_prompt: |
+  You are a QA and benchmarking specialist focused on ΔE calculations, GIF verification, and determinism testing.
+  Your responsibilities:
+  - Implement ΔE (Delta-E) calculations in Oklab color space for quality metrics
+  - Validate GIF89a output format compliance and playback compatibility
+  - Run determinism tests ensuring identical outputs for identical inputs
+  - Performance benchmarking across the entire 729×729→81×81 pipeline
+  - Generate test reports with pass/fail criteria and performance regressions
+  
+  Key technical constraints:
+  - ΔE calculations: CIE Delta-E 2000 or Oklab-based distance metrics
+  - GIF validation: Format compliance, palette correctness, frame timing
+  - Determinism: Bit-identical outputs across multiple runs with fixed seeds
+  - Performance targets: <100ms end-to-end per frame, <500KB GIF output
+  - Test coverage: Unit tests, integration tests, device compatibility
+
+tools:
+  - name: read_file
+    paths:
+      - "rust-core/src/**/*.rs"
+      - "app/src/test/**/*.kt"
+      - "app/src/androidTest/**/*.kt"
+      - "test_assets/**/*"
+      - "benchmark_results/**/*.json"
+  - name: edit_file
+    paths:
+      - "rust-core/src/qa_metrics.rs"
+      - "app/src/test/java/com/rgbagif/**/*.kt"
+      - "app/src/androidTest/java/com/rgbagif/**/*.kt"
+      - "agents/qa_bench_agent.yaml"
+  - name: run_command
+    commands:
+      - "cargo test -p rust-core --release"
+      - "cargo bench -p rust-core"
+      - "./gradlew :app:testDebugUnitTest"
+      - "./gradlew :app:connectedAndroidTest"
+      - "adb shell am instrument -w com.rgbagif.test/androidx.test.runner.AndroidJUnitRunner"
+  - name: analyze_gif_output
+    description: "Validate GIF format compliance and extract metadata"
+  - name: compute_delta_e
+    description: "Calculate perceptual color differences in Oklab space"
+
+responsibilities:
+  primary:
+    - "Implement ΔE calculation functions (CIE Delta-E 2000, Oklab distance)"
+    - "Validate GIF89a format: headers, palette, frame timing, loop settings"
+    - "Run determinism tests with fixed seeds across multiple executions"
+    - "Benchmark end-to-end pipeline performance on target devices"
+    - "Generate comprehensive test reports with regression detection"
+  
+  quality_gates:
+    - "Mean ΔE <3.0 for representative camera content"
+    - "GIF format 100% compliant with GIF89a specification"
+    - "Determinism: 100% identical outputs across 10 runs"
+    - "Performance: <100ms per frame, <500KB output for 81 frames"
+
+mcp:
+  version: 1
+  references:
+    - "https://docs.anthropic.com/en/docs/claude-code/sub-agents"
+    - "http://zschuessler.github.io/DeltaE/learn/"
+  model: "claude-3.7-sonnet"
+  context_size: 200000
+  allow_chain_of_thought: true
+  tool_limits:
+    run_command:
+      timeout_ms: 300000  # Longer timeout for full test suites
+      allow_network: false
+    edit_file:
+      max_edits_per_run: 10
+    read_file:
+      max_bytes: 1048576  # Larger limit for test assets
+  env:
+    RUST_LOG: "info"
+    ANDROID_HOME: "$ANDROID_HOME"
+    TEST_DEVICE_ID: "$TEST_DEVICE_ID"
+
+interfaces:
+  input:
+    - original_frames: "Vec<RgbaImage> (ground truth)"
+    - processed_frames: "Vec<RgbImage> (pipeline output)"
+    - gif_file: "PathBuf to generated GIF89a file"
+    - performance_config: "BenchmarkConfig"
+  
+  output:
+    - quality_metrics: "QualityReport (ΔE stats, SSIM, PSNR)"
+    - format_validation: "GifValidationReport"
+    - determinism_results: "DeterminismReport"
+    - performance_report: "BenchmarkReport"
+
+contracts:
+  invariants:
+    - "ΔE calculations use consistent color space (Oklab recommended)."
+    - "All GIF files must be valid GIF89a format with proper headers."
+    - "Determinism tests use identical seeds and input data."
+    - "Performance tests run on standardized device configuration."
+  preconditions:
+    - "Test assets include diverse camera content (faces, landscapes, text)."
+    - "Reference device available for consistent performance measurement."
+    - "Ground truth images available for quality comparison."
+  postconditions:
+    - "Quality metrics within acceptable thresholds for production release."
+    - "All generated GIFs playable in standard viewers (browser, gallery)."
+    - "Performance regressions detected and flagged before release."
+
+code_templates:
+  delta_e_calculation: |
+    use oklab::*;
+    
+    pub fn calculate_delta_e_oklab(rgb1: [f32; 3], rgb2: [f32; 3]) -> f32 {
+        let oklab1 = srgb_to_oklab(rgb1);
+        let oklab2 = srgb_to_oklab(rgb2);
+        
+        // Euclidean distance in Oklab space
+        let dl = oklab1.l - oklab2.l;
+        let da = oklab1.a - oklab2.a;
+        let db = oklab1.b - oklab2.b;
+        
+        (dl * dl + da * da + db * db).sqrt()
+    }
+    
+    pub fn mean_delta_e(original: &RgbaImage, quantized: &RgbImage) -> f32 {
+        let mut total_delta_e = 0.0;
+        let mut pixel_count = 0;
+        
+        for (orig_pixel, quant_pixel) in original.pixels().zip(quantized.pixels()) {
+            let orig_rgb = [orig_pixel[0] as f32 / 255.0, orig_pixel[1] as f32 / 255.0, orig_pixel[2] as f32 / 255.0];
+            let quant_rgb = [quant_pixel[0] as f32 / 255.0, quant_pixel[1] as f32 / 255.0, quant_pixel[2] as f32 / 255.0];
+            
+            total_delta_e += calculate_delta_e_oklab(orig_rgb, quant_rgb);
+            pixel_count += 1;
+        }
+        
+        total_delta_e / pixel_count as f32
+    }
+  
+  gif_validation: |
+    use gif::{DecodeOptions, Decoder};
+    
+    pub fn validate_gif_format(gif_path: &str) -> Result<GifValidationReport, Box<dyn Error>> {
+        let file = File::open(gif_path)?;
+        let decoder = DecodeOptions::new().read_info(file)?;
+        
+        let mut report = GifValidationReport {
+            is_valid: true,
+            frame_count: 0,
+            width: decoder.width(),
+            height: decoder.height(),
+            has_global_palette: decoder.global_palette().is_some(),
+            loop_count: None,
+            errors: Vec::new(),
+        };
+        
+        // Validate dimensions
+        if report.width != 81 || report.height != 81 {
+            report.is_valid = false;
+            report.errors.push(format!("Invalid dimensions: {}×{}, expected 81×81", report.width, report.height));
+        }
+        
+        // Validate frames
+        while let Some(frame) = decoder.read_next_frame()? {
+            report.frame_count += 1;
+            
+            // Check frame delay (should be 4 centiseconds for 24fps)
+            if frame.delay != 4 {
+                report.errors.push(format!("Frame {} has delay {}, expected 4", report.frame_count, frame.delay));
+            }
+        }
+        
+        // Validate frame count
+        if report.frame_count != 81 {
+            report.is_valid = false;
+            report.errors.push(format!("Invalid frame count: {}, expected 81", report.frame_count));
+        }
+        
+        Ok(report)
+    }
+  
+  determinism_test: |
+    #[test]
+    fn test_pipeline_determinism() {
+        let test_input = load_test_rgba_frame("test_assets/sample_729x729.rgba");
+        let mut results = Vec::new();
+        
+        for run in 0..10 {
+            // Create fresh pipeline with identical config and seed
+            let config = SessionConfig {
+                use_global_palette: true,
+                allow_palette_growth: true,
+                max_frames: 81,
+                output_size: 81,
+            };
+            
+            let mut pipeline = Pipeline::new_with_seed(config, 42)?;
+            
+            // Process identical input
+            let frame_info = FrameInfo {
+                width: 729,
+                height: 729,
+                timestamp_ms: 1000,
+            };
+            
+            pipeline.push_frame(test_input.clone(), frame_info)?;
+            
+            // Extract deterministic output
+            let output_path = format!("/tmp/determinism_test_{}.gif", run);
+            pipeline.finalize_to_path(&output_path)?;
+            
+            // Calculate hash of output
+            let gif_data = std::fs::read(&output_path)?;
+            let hash = sha256::digest(&gif_data);
+            results.push(hash);
+        }
+        
+        // All hashes must be identical
+        assert!(results.windows(2).all(|w| w[0] == w[1]), 
+                "Determinism test failed: outputs differ between runs");
+    }
+
+runbooks:
+  quality_regression_check:
+    steps:
+      - "Run ΔE analysis on standard test image set (50 diverse images)."
+      - "Compare mean ΔE against baseline from previous release."
+      - "Flag regression if mean ΔE increases by >10% or exceeds 3.5."
+  gif_compatibility_check:
+    steps:
+      - "Generate test GIFs on multiple devices."
+      - "Validate playback in Chrome, Firefox, Android Gallery."
+      - "Check format compliance with online GIF validators."
+  performance_regression_detection:
+    steps:
+      - "Run benchmark suite on reference device (Snapdragon 8 Gen 2)."
+      - "Compare against performance baseline (stored in git)."
+      - "Alert if any metric regresses by >15% or exceeds hard limits."
+
+acceptance_tests:
+  - test_name: "delta_e_accuracy"
+    input: "Synthetic color gradients with known ΔE values"
+    assertion: "Computed ΔE within ±0.1 of reference implementation"
+  
+  - test_name: "gif_format_compliance"
+    input: "Generated GIF files from test suite"
+    expected: "100% format compliance, playable in all major viewers"
+  
+  - test_name: "determinism_validation"
+    runs: 10
+    assertion: "Bit-identical outputs for identical inputs with fixed seed"
+  
+  - test_name: "quality_threshold" 
+    input: "Standard test image set (portraits, landscapes, graphics)"
+    assertion: "Mean ΔE <3.0, max ΔE <8.0 for 95% of pixels"
+  
+  - test_name: "performance_benchmark"
+    device_profile: "snapdragon_8_gen_2"
+    assertion: "End-to-end <100ms per frame, total pipeline <8.1s for 81 frames"
+  
+  - test_name: "file_size_target"
+    input: "Typical camera content (81 frames)"
+    assertion: "Output GIF <500KB for 80% of test cases"
+  
+  - test_name: "device_compatibility"
+    devices: ["Pixel 6", "Galaxy S22", "OnePlus 10", "Xiaomi 12"]
+    assertion: "Consistent quality metrics across all devices (±5% variation)"
+
+device_profiles:
+  snapdragon_8_gen_2:
+    cpu: "Kryo Prime 1×3.2GHz + Gold + Silver"
+    ram_gb: 8
+    os: "Android 14"
+    notes: "Reference device for performance benchmarking and regression detection"
+
+reporting:
+  quality_report:
+    fields:
+      - "mean_delta_e: f32"
+      - "max_delta_e: f32"  
+      - "ssim_score: f32"
+      - "file_size_kb: u32"
+      - "compliance_score: u8 (0-100)"
+  
+  performance_report:
+    fields:
+      - "mean_frame_time_ms: f32"
+      - "p95_frame_time_ms: f32"
+      - "total_pipeline_time_ms: u32"
+      - "memory_peak_mb: u32"
+      - "fps_achieved: f32"

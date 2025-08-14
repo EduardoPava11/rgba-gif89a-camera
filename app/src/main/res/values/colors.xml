@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Functional Colors -->
+    <color name="processing_orange">#FFFF6D00</color>
+    <color name="processing_orange_dark">#FFE65100</color>
+    
+    <color name="matrix_green">#FF00C853</color>
+    <color name="matrix_green_dark">#FF00A041</color>
+    
+    <color name="error_red">#FFD50000</color>
+    <color name="info_blue">#FF0091EA</color>
+    
+    <!-- Neutral Colors -->
+    <color name="neutral_dark">#FF121212</color>
+    <color name="neutral_mid">#FF424242</color>
+    <color name="neutral_light">#FFE0E0E0</color>
+    
+    <!-- Additional Colors -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="transparent">#00000000</color>
+</resources>

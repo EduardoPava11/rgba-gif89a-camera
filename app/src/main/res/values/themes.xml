@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.RgbaGif89a" parent="Theme.AppCompat.NoActionBar">
+        <!-- Primary brand color -->
+        <item name="colorPrimary">@color/processing_orange</item>
+        <item name="colorPrimaryDark">@color/processing_orange_dark</item>
+        
+        <!-- Accent color -->
+        <item name="colorAccent">@color/matrix_green</item>
+        
+        <!-- Background colors -->
+        <item name="android:colorBackground">@color/neutral_dark</item>
+        
+        <!-- Error colors -->
+        <item name="colorError">@color/error_red</item>
+        
+        <!-- Status bar -->
+        <item name="android:statusBarColor">@color/neutral_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+        
+        <!-- Navigation bar -->
+        <item name="android:navigationBarColor">@color/neutral_dark</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

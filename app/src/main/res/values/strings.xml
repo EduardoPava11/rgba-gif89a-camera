@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">RGBA→GIF89a</string>
+    
+    <!-- Camera Screen -->
+    <string name="capture_button">Start capture</string>
+    <string name="stop_capture">Stop capture</string>
+    <string name="info_button">Pipeline information</string>
+    <string name="status_button">View metrics</string>
+    
+    <!-- Grid Progress -->
+    <string name="frame_progress">Frame %1$d of %2$d</string>
+    <string name="capture_complete">Capture complete!</string>
+    
+    <!-- Technical Readouts -->
+    <string name="processing_time">Processing: %1$dms</string>
+    <string name="palette_size">Palette: %1$d colors</string>
+    <string name="alpha_range">Alpha: %1$.2f–%2$.2f</string>
+    
+    <!-- Overlays -->
+    <string name="alpha_overlay">Alpha channel visualization</string>
+    <string name="delta_e_overlay">Delta E color difference</string>
+    
+    <!-- Info Panel -->
+    <string name="pipeline_title">RGBA→GIF89a Pipeline</string>
+    <string name="close">Close</string>
+    
+    <!-- Error Messages -->
+    <string name="camera_permission_required">Camera permission is required</string>
+    <string name="storage_permission_required">Storage permission is required</string>
+    <string name="pipeline_error">Pipeline initialization failed</string>
+    
+    <!-- Status -->
+    <string name="capture_metrics">Capture Metrics</string>
+    <string name="output_files">Output Files</string>
+</resources>

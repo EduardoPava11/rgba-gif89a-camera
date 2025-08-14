@@ -1,0 +1,12 @@
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -104,6 +104,9 @@ dependencies {
+     // For handling images
+     implementation("io.coil-kt:coil-compose:2.4.0")
+     
++    // Permissions handling in Compose
++    implementation("com.google.accompanist:accompanist-permissions:0.32.0")
++    
+     // Testing
+     testImplementation("junit:junit:4.13.2")
+     androidTestImplementation("androidx.test.ext:junit:1.1.5")

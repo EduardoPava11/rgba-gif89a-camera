@@ -1,0 +1,1 @@
+/Users/daniel/rgba-gif89a-camera/rust-core/m2down/target/armv7-linux-androideabi/release/generate_bindings: /Users/daniel/rgba-gif89a-camera/rust-core/m2down/build.rs /Users/daniel/rgba-gif89a-camera/rust-core/m2down/src/bin/generate_bindings.rs /Users/daniel/rgba-gif89a-camera/rust-core/m2down/src/m2down.udl

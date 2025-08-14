@@ -1,0 +1,72 @@
+--- a/app/src/main/java/com/rgbagif/camera/CameraXManager.kt
++++ b/app/src/main/java/com/rgbagif/camera/CameraXManager.kt
+@@ -80,6 +80,7 @@ class CameraXManager(val context: Context) {
+     private var frameProcessor: ((Bitmap) -> Unit)? = null
+     private var rgbaFrameCallback: ((ByteArray, Int, Int) -> Unit)? = null
+     private var isProcessing = false
++    private var isCameraActive = false
+     
+     enum class PreviewState {
+         IDLE, LIVE, FROZEN, ERROR
+@@ -91,6 +92,7 @@ class CameraXManager(val context: Context) {
+     fun setFrameCallback(callback: (ByteArray, Int, Int) -> Unit) {
+         rgbaFrameCallback = callback
+     }
++    
++    fun clearFrameCallback() {
++        rgbaFrameCallback = null
++    }
+     
+     /**
+      * Set the PreviewView for camera preview
+@@ -185,6 +187,7 @@ class CameraXManager(val context: Context) {
+                 )
+             }
+             
++            isCameraActive = true
+             _previewState.value = PreviewState.LIVE
+             
+             // Log camera start with new session
+@@ -212,7 +215,7 @@ class CameraXManager(val context: Context) {
+      */
+     private fun processRgbaFrame(image: ImageProxy) {
+-        if (isProcessing || frameProcessor == null) {
++        if (!isCameraActive) {
+             image.close()
+             return
+         }
+@@ -280,8 +283,11 @@ class CameraXManager(val context: Context) {
+             // Create bitmap for direct display
+             val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+             bitmap.setPixels(argb, 0, width, 0, 0, width, height)
+             
+             // Invoke frame processor callback
+-            frameProcessor?.invoke(bitmap)
++            frameProcessor?.invoke(bitmap)
++            
++            // Also invoke RGBA callback if set (for MilestoneManager)
++            rgbaFrameCallback?.invoke(rgba, width, height)
+             
+             // Update RGB bus for preview
+             RgbFrameBus.updateBitmap(bitmap)
+@@ -347,8 +353,20 @@ class CameraXManager(val context: Context) {
+         isProcessing = false
+     }
+     
++    /**
++     * Stop camera and release resources
++     */
++    fun stopCamera() {
++        isCameraActive = false
++        cameraProvider?.unbindAll()
++        _previewState.value = PreviewState.IDLE
++    }
++    
+     fun cleanup() {
++        isCameraActive = false
++        rgbaFrameCallback = null
++        frameProcessor = null
+         analysisExecutor.shutdown()
+         cameraProvider?.unbindAll()
+     }
+ }

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Share files from app's external files directory -->
+    <external-files-path name="gifs" path="gifs/" />
+    <external-files-path name="captures" path="captures/" />
+    <external-files-path name="external_files" path="." />
+    
+    <!-- Share files from app's cache directory -->
+    <cache-path name="cache" path="." />
+    
+    <!-- Share files from app's internal files directory -->
+    <files-path name="files" path="." />
+</paths>

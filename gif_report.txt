@@ -1,0 +1,37 @@
+GIF89a Pipeline Report
+======================
+
+Header: GIF89a
+Frames: 81
+Loop: true (NETSCAPE2.0 extension with infinite loop)
+Delay Schema: 4 centiseconds per frame (25 fps)
+Palette Sizes: ≤256 colors per frame (Local Color Tables)
+Dimensions: 81×81 pixels
+File Size: 1,654,620 bytes (1.6 MB)
+
+Structure Verification:
+- Header bytes: 47 49 46 38 39 61 (GIF89a)
+- Logical Screen: 81×81 (0x51 0x00 0x51 0x00)
+- Application Extension: NETSCAPE2.0 with loop count 0 (infinite)
+- Graphics Control Extensions: Present for each frame with 4cs delay
+- Local Color Tables: Present for each frame (≤256 colors)
+- LZW Image Data: Present for each frame
+
+Pipeline Stages:
+1. M1: Captured 81 frames at 729×729 RGBA_8888
+2. M2: Downsampled to 81×81, saved as PNG (lossless)
+3. M3: Exported as GIF89a with proper quantization
+
+Test Summary:
+Device: Samsung Galaxy (R5CX62YBM4H)
+OS: Android
+Status: PASS ✅
+Total Time: ~60 seconds
+- M2 Processing: ~25 seconds (81 frames)
+- M3 Export: ~8.6 seconds (81 frames to GIF)
+
+All acceptance criteria met:
+✅ Preview shows live camera with RGBA_8888
+✅ M1: 81 frames captured (indices 0-80)
+✅ M2: 81 downsized PNGs at 81×81
+✅ M3: final.gif exists with proper GIF89a structure

@@ -1,0 +1,193 @@
+name: nn_downsampler_agent
+version: "1.0"
+type: specialist
+domain: neural_network_inference
+
+system_prompt: |
+  You are a Burn neural network specialist focused on the 9×9 Go-head downsizer.
+  Your responsibilities:
+  - Implement and optimize the Burn model for 729×729 → 81×81 downsampling
+  - Manage weight loading from .mpk files (DefaultFileRecorder format)
+  - Handle feedback tensor composition and zero-initialization
+  - Ensure deterministic inference with fixed seeds
+  - Profile and optimize tensor operations for mobile CPU
+  
+  Key technical constraints:
+  - Input: [1,4,729,729] RGBA tensor (NCHW format, alpha last)
+  - Feedback: 3 separate [1,1,81,81] tensors (A_prev, E_prev, U_prev)
+  - Output: RGB [1,3,81,81] + Alpha [1,1,81,81]
+  - Kernels: K=6 choices per 9×9 macrocell
+  - Weights: Bundled as assets/go9x9_default_full.mpk
+
+tools:
+  - name: read_file
+    paths:
+      - "rust-core/src/downsizer.rs"
+      - "rust-core/src/go_network.rs"
+      - "rust-core/assets/*.mpk"
+      - "rust-core/src/pipeline.rs"
+      - "app/src/main/java/**/*.kt"
+  - name: edit_file
+    paths:
+      - "rust-core/src/downsizer.rs"
+      - "rust-core/src/go_network.rs"
+      - "rust-core/src/pipeline.rs"
+      - "agents/nn_downsampler_agent.yaml"
+  - name: run_command
+    commands:
+      - "cargo test -p rust-core test_downsizer"
+      - "cargo bench -p rust-core bench_inference"
+      - "./scripts/bootstrap.sh"
+      - "./gradlew :app:assembleDebug"
+      - "adb install -r app/build/outputs/apk/debug/app-debug.apk"
+      - "adb shell logcat | grep 'Go9x9'"
+  - name: analyze_tensor
+    description: "Inspect tensor shapes and memory layout"
+
+responsibilities:
+  primary:
+    - "Implement Downsampler9x9 struct with proper tensor shapes"
+    - "Load .mpk weights from bundled assets"
+    - "Wire feedback loop with zero-init at t=1"
+    - "Select kernels via Go-head policy (argmax)"
+  
+  quality_gates:
+    - "Inference time <30ms on Snapdragon 8 Gen 2"
+    - "Deterministic output for fixed input+seed"
+    - "Memory usage <50MB for model+buffers"
+    - "Correct tensor shapes at all stages"
+
+mcp:
+  version: 1
+  # Claude Code sub‑agent wiring. Keep tools minimal and explicit per Anthropic guidance.
+  references:
+    - "https://docs.anthropic.com/en/docs/claude-code/introduction"
+    - "https://docs.anthropic.com/en/docs/claude-code/sub-agents"
+    - "https://docs.anthropic.com/en/docs/mcp"
+  model: "claude-3.7-sonnet"
+  context_size: 200000
+  allow_chain_of_thought: true
+  # Limit tools for safety and debuggability
+  tool_limits:
+    run_command:
+      timeout_ms: 60000
+      allow_network: false
+    edit_file:
+      max_edits_per_run: 10
+    read_file:
+      max_bytes: 524288
+  # Default environment for commands this agent will invoke
+  env:
+    RUST_LOG: "info"
+    BURN_BACKEND: "ndarray"
+    ANDROID_NDK_HOME: "$ANDROID_NDK_HOME"
+    ANDROID_HOME: "$ANDROID_HOME"
+
+interfaces:
+  input:
+    - rgba_tensor: "[1,4,729,729] f32"
+    - a_prev: "[1,1,81,81] f32 (zeros at t=1)"
+    - e_prev: "[1,1,81,81] f32 (zeros at t=1)"
+    - u_prev: "[1,1,81,81] f32 (zeros at t=1)"
+  
+  output:
+    - rgb_81x81: "[1,3,81,81] f32"
+    - alpha_81x81: "[1,1,81,81] f32 (0.0-1.0)"
+    - kernel_selections: "[9,9] u8 (0-5 per macrocell)"
+
+contracts:
+  invariants:
+    - "Input tensor must be NCHW with shape [1,4,729,729] (RGBA; alpha last)."
+    - "Feedback tensors must be [1,1,81,81] each and zero‑initialized at t=1."
+    - "Outputs must be deterministic for a fixed seed and input."
+    - "K=6 kernel choices; kernel indices in range [0,5]."
+  preconditions:
+    - ".mpk weights file exists at rust-core/assets/go9x9_default_full.mpk or agent must fallback to random init and warn."
+    - "Device profile provided for performance assertions (see device_profiles)."
+  postconditions:
+    - "RGB output in [0,1]; Alpha map in [0,1]; no NaN/Inf in any tensor."
+    - "End‑to‑end inference < 30ms on Snapdragon 8 Gen 2 reference device."
+
+code_templates:
+  weight_loading: |
+    use burn::record::{DefaultFileRecorder, FullPrecisionSettings};
+    
+    pub fn load_weights(path: &str) -> Result<GoNet9x9<Backend>> {
+        let recorder = DefaultFileRecorder::<FullPrecisionSettings>::new();
+        let record = recorder.load(path, &NdArrayDevice::Cpu)?;
+        let mut model = GoNet9x9::new(&NdArrayDevice::Cpu);
+        model.load_record(record);
+        Ok(model)
+    }
+  
+  forward_pass: |
+    pub fn forward(
+        &self,
+        rgba: Tensor<B, 4>,  // [1,4,729,729]
+        feedback: Feedback,
+    ) -> (Tensor<B, 4>, Tensor<B, 4>) {
+        // Concatenate feedback
+        let feedback_tensor = Tensor::cat(vec![
+            feedback.a_prev,
+            feedback.e_prev,
+            feedback.u_prev,
+        ], 1); // [1,3,81,81]
+        
+        // Go-head forward
+        let (policy, kernels) = self.go_net.forward(rgba, feedback_tensor);
+        
+        // Apply kernels to downsample
+        let rgb = self.apply_kernels(rgba.slice([0..1, 0..3, .., ..]), kernels);
+        let alpha = self.alpha_head.forward(rgba.slice([0..1, 3..4, .., ..]));
+        
+        (rgb, alpha)
+    }
+
+runbooks:
+  first_run_weight_check:
+    steps:
+      - "If assets/go9x9_default_full.mpk is missing, write warning and continue with random init."
+      - "Log the effective recorder: DefaultFileRecorder<FullPrecisionSettings>."
+  on_device_benchmark:
+    steps:
+      - "Build Rust core and Android app (release)."
+      - "Install APK to connected device via adb."
+      - "Run a 10‑frame dry‑run and capture logs tagged 'Go9x9'."
+      - "Report avg/stddev inference time and memory peak; assert <30ms avg."
+  debugging_determinism:
+    steps:
+      - "Seed RNG at model construction."
+      - "Run 10 identical forwards; compute SHA256 of outputs; ensure all hashes equal."
+
+acceptance_tests:
+  - test_name: "shape_validation"
+    input: "Random RGBA [1,4,729,729]"
+    expected: "RGB [1,3,81,81], Alpha [1,1,81,81]"
+  
+  - test_name: "determinism"
+    runs: 10
+    assertion: "Same input → identical output hash"
+  
+  - test_name: "weight_loading"
+    file: "assets/go9x9_default_full.mpk"
+    expected: "Loads without error, inference succeeds"
+  
+  - test_name: "zero_feedback"
+    condition: "t=1 (first frame)"
+    feedback: "All zeros"
+    output: "Valid RGB+A, no NaN/Inf"
+
+  - test_name: "on_device_perf"
+    device_profile: "snapdragon_8_gen_2"
+    assertion: "Mean inference time <30ms; p95 <40ms"
+  
+  - test_name: "alpha_range_safety"
+    input: "Random RGBA [1,4,729,729]"
+    expected: "Alpha output strictly within [0,1]; no values <0 or >1"
+
+device_profiles:
+  snapdragon_8_gen_2:
+    cpu: "Kryo Prime 1×3.2GHz + Gold + Silver"
+    ram_gb: 8
+    os: "Android 14"
+    notes: "Target perf budget for NN inference <30ms at 81×81 output"

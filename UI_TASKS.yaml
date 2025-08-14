@@ -1,0 +1,345 @@
+version: "1.0"
+project: rgba-gif89a-camera-ui
+design_system: form_follows_function
+
+phases:
+  - id: ui_phase1
+    name: "Theme & Foundation"
+    duration: "4 hours"
+    tasks:
+      - id: ui1_1
+        name: "Create square shape system"
+        file: "app/src/main/java/com/rgbagif/ui/theme/Theme.kt"
+        changes:
+          - Define SquareShapes with 0dp, 4dp, 8dp corners max
+          - Create color palette (Neutral, Processing, Matrix, Error)
+          - Set up monospace typography for technical readouts
+        acceptance:
+          - "All shapes maintain 1:1 aspect ratio"
+          - "Colors meet WCAG AA contrast (4.5:1)"
+          - "Monospace font loads for metrics display"
+      
+      - id: ui1_2
+        name: "Configure Material 3 theme"
+        file: "app/src/main/java/com/rgbagif/ui/theme/Theme.kt"
+        changes:
+          - Apply square shapes to Material components
+          - Define elevation strategy (minimal, functional)
+          - Set up dark/light color schemes
+        acceptance:
+          - "Theme applied consistently across components"
+          - "Dark mode maintains contrast ratios"
+          - "No glossy/skeuomorphic elements"
+
+  - id: ui_phase2
+    name: "Core Components"
+    duration: "8 hours"
+    tasks:
+      - id: ui2_1
+        name: "Implement SquarePreview"
+        file: "app/src/main/java/com/rgbagif/ui/components/SquarePreview.kt"
+        implementation: |
+          @Composable
+          fun SquarePreview(
+              previewState: PreviewState,
+              bitmap: Bitmap?,
+              modifier: Modifier = Modifier
+          ) {
+              Box(
+                  modifier = modifier
+                      .fillMaxWidth()
+                      .aspectRatio(1f)
+                      .clip(RectangleShape)
+                      .border(2.dp, borderColor(previewState))
+              ) {
+                  // Camera feed
+                  bitmap?.let { 
+                      Image(it.asImageBitmap(), null, Modifier.fillMaxSize())
+                  }
+                  // Dimension chip
+                  Chip("729×729", Modifier.align(TopEnd))
+              }
+          }
+        acceptance:
+          - "Preview maintains exact 1:1 ratio"
+          - "Border color reflects capture state"
+          - "Dimension chip always visible"
+          - "Handles null bitmap gracefully"
+      
+      - id: ui2_2
+        name: "Implement Grid81 progress"
+        file: "app/src/main/java/com/rgbagif/ui/components/Grid81.kt"
+        implementation: |
+          @Composable
+          fun Grid81(
+              capturedFrames: Int,
+              modifier: Modifier = Modifier
+          ) {
+              LazyVerticalGrid(
+                  columns = GridCells.Fixed(9),
+                  modifier = modifier.aspectRatio(1f),
+                  horizontalArrangement = spacedBy(2.dp),
+                  verticalArrangement = spacedBy(2.dp)
+              ) {
+                  items(81) { index ->
+                      GridCell(
+                          filled = index < capturedFrames,
+                          active = index == capturedFrames
+                      )
+                  }
+              }
+          }
+        acceptance:
+          - "Exactly 81 cells in 9×9 layout"
+          - "2dp gaps between cells"
+          - "Current frame pulses/shimmers"
+          - "Filled cells show completion"
+      
+      - id: ui2_3
+        name: "Implement CubicButtons"
+        file: "app/src/main/java/com/rgbagif/ui/components/CubicButtons.kt"
+        implementation: |
+          @Composable
+          fun CubicButtons(
+              onInfo: () -> Unit,
+              onCapture: () -> Unit,
+              onStatus: () -> Unit,
+              isCapturing: Boolean
+          ) {
+              Row(Modifier.fillMaxWidth(), SpaceEvenly) {
+                  CubicButton(Icons.Outlined.Info, onInfo, 64.dp)
+                  CubicButton(
+                      if (isCapturing) Icons.Filled.Stop 
+                      else Icons.Filled.FiberManualRecord,
+                      onCapture, 
+                      96.dp, // Primary action larger
+                      color = if (isCapturing) ErrorRed else ProcessingOrange
+                  )
+                  CubicButton(Icons.Outlined.Analytics, onStatus, 64.dp)
+              }
+          }
+        acceptance:
+          - "Three square buttons horizontally aligned"
+          - "Capture button 96dp, others 64dp"
+          - "Icons scale to 50% of button size"
+          - "Semantic colors for states"
+
+  - id: ui_phase3
+    name: "Technical Overlays"
+    duration: "6 hours"
+    tasks:
+      - id: ui3_1
+        name: "Implement TechnicalReadout"
+        file: "app/src/main/java/com/rgbagif/ui/components/TechnicalReadout.kt"
+        changes:
+          - Create monospace readout bar
+          - Display geometry, fps, frames, ΔE, palette
+          - Use color coding for metrics
+        acceptance:
+          - "All metrics visible simultaneously"
+          - "Monospace font for alignment"
+          - "Updates at 10+ Hz during capture"
+          - "Color indicates metric health"
+      
+      - id: ui3_2
+        name: "Implement overlay system"
+        file: "app/src/main/java/com/rgbagif/ui/components/Overlays.kt"
+        changes:
+          - Create OverlayAlpha heatmap renderer
+          - Create OverlayDeltaE heatmap renderer
+          - Add toggle controls with FilterChips
+          - Include corner legend cards
+        acceptance:
+          - "Overlays render at 81×81 resolution"
+          - "40% alpha for visibility"
+          - "Legends show scale/units"
+          - "Smooth toggle animation"
+      
+      - id: ui3_3
+        name: "Implement InfoPanel"
+        file: "app/src/main/java/com/rgbagif/ui/components/InfoPanel.kt"
+        changes:
+          - Technical pipeline explanation
+          - Links to Oklab/Floyd-Steinberg docs
+          - Dismissible dialog with square design
+        acceptance:
+          - "All pipeline steps explained"
+          - "Technical terms linked"
+          - "Maintains square aesthetic"
+          - "Keyboard dismissible"
+
+  - id: ui_phase4
+    name: "Screen Composition"
+    duration: "4 hours"
+    tasks:
+      - id: ui4_1
+        name: "Compose CameraScreen"
+        file: "app/src/main/java/com/rgbagif/ui/CameraScreen.kt"
+        implementation: |
+          @Composable
+          fun CameraScreen(viewModel: CameraViewModel) {
+              Column(
+                  modifier = Modifier
+                      .fillMaxSize()
+                      .background(NeutralDark)
+              ) {
+                  SquarePreview(
+                      previewState = viewModel.previewState,
+                      bitmap = viewModel.previewBitmap
+                  )
+                  
+                  Grid81(
+                      capturedFrames = viewModel.capturedFrames,
+                      modifier = Modifier.padding(16.dp)
+                  )
+                  
+                  TechnicalReadout(
+                      capturedFrames = viewModel.capturedFrames,
+                      deltaE = viewModel.deltaEMetrics,
+                      paletteSize = viewModel.paletteSize,
+                      fps = viewModel.currentFps
+                  )
+                  
+                  CubicButtons(
+                      onInfo = { viewModel.showInfo() },
+                      onCapture = { viewModel.toggleCapture() },
+                      onStatus = { viewModel.showStatus() },
+                      isCapturing = viewModel.isCapturing
+                  )
+                  
+                  OverlayControls(
+                      showAlpha = viewModel.showAlphaOverlay,
+                      showDeltaE = viewModel.showDeltaEOverlay,
+                      onToggleAlpha = { viewModel.toggleAlphaOverlay() },
+                      onToggleDeltaE = { viewModel.toggleDeltaEOverlay() }
+                  )
+              }
+              
+              // Overlays
+              if (viewModel.showAlphaOverlay) {
+                  AlphaOverlay(viewModel.alphaMap)
+              }
+              if (viewModel.showDeltaEOverlay) {
+                  DeltaEOverlay(viewModel.deltaEMap)
+              }
+              
+              // Dialogs
+              InfoPanel(
+                  visible = viewModel.showInfoPanel,
+                  onDismiss = { viewModel.hideInfo() }
+              )
+          }
+        acceptance:
+          - "All components properly arranged"
+          - "State flows correctly from ViewModel"
+          - "No layout jumps during capture"
+          - "Overlays render above preview"
+
+  - id: ui_phase5
+    name: "CameraX Integration"
+    duration: "4 hours"
+    tasks:
+      - id: ui5_1
+        name: "Verify RGBA_8888 configuration"
+        file: "app/src/main/java/com/rgbagif/camera/CameraXManager.kt"
+        changes:
+          - Confirm OUTPUT_IMAGE_FORMAT_RGBA_8888
+          - Handle rowStride correctly
+          - Center-crop to exact 729×729
+          - Pack tightly for CBOR
+        test: |
+          // Verify configuration
+          assertEquals(
+              ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888,
+              imageAnalysis.outputImageFormat
+          )
+          // Verify stride handling
+          assertTrue(rowStride >= width * 4)
+          // Verify tight packing
+          assertEquals(729 * 729 * 4, packedBuffer.size)
+        acceptance:
+          - "RGBA_8888 format confirmed"
+          - "Stride handled in copy loop"
+          - "Output exactly 729×729×4 bytes"
+          - "No color space conversion"
+
+  - id: ui_phase6
+    name: "Accessibility & Polish"
+    duration: "4 hours"
+    tasks:
+      - id: ui6_1
+        name: "Add accessibility annotations"
+        changes:
+          - Content descriptions for all interactive elements
+          - Focus order specification
+          - Announce state changes
+          - Support TalkBack navigation
+        acceptance:
+          - "All buttons have descriptions"
+          - "Grid progress announced"
+          - "Metrics readable by screen reader"
+          - "Focus order logical"
+      
+      - id: ui6_2
+        name: "Handle orientation & state"
+        changes:
+          - Save/restore capture state
+          - Handle rotation without restart
+          - Adapt layout for landscape
+          - Preserve overlay toggles
+        acceptance:
+          - "Rotation preserves capture"
+          - "Landscape layout functional"
+          - "State survives process death"
+          - "No memory leaks"
+
+quality_gates:
+  - name: "Visual Consistency"
+    criteria:
+      - "All elements follow square/cubic geometry"
+      - "No rounded corners > 8dp"
+      - "Consistent 2dp gaps in grids"
+      - "Monospace font for all metrics"
+  
+  - name: "Technical Truth"
+    criteria:
+      - "Always show 729×729 → 81×81"
+      - "Frame counter accurate"
+      - "ΔE updates per frame"
+      - "Palette count reflects actual"
+  
+  - name: "Performance"
+    criteria:
+      - "60fps UI during idle"
+      - "30fps minimum during capture"
+      - "No jank on overlay toggle"
+      - "Memory stable over session"
+  
+  - name: "Accessibility"
+    criteria:
+      - "WCAG AA contrast (4.5:1)"
+      - "Touch targets ≥ 48dp"
+      - "TalkBack navigation works"
+      - "Reduced motion respected"
+
+verification_checklist:
+  - [ ] Square preview maintains 1:1 ratio on all devices
+  - [ ] Grid81 shows exactly 81 cells in 9×9 layout
+  - [ ] CubicButtons are perfect squares with correct hierarchy
+  - [ ] TechnicalReadout displays all metrics simultaneously
+  - [ ] Overlays toggle without affecting capture
+  - [ ] InfoPanel explains Oklab and Floyd-Steinberg
+  - [ ] CameraX outputs RGBA_8888 with correct stride handling
+  - [ ] GIF saves with delay=4cs and loops forever
+  - [ ] Accessibility passes automated checks
+  - [ ] No memory leaks over 10-minute session
+
+screenshots_required:
+  - idle_state.png: "App at launch, square preview visible"
+  - capturing.png: "During capture, Grid81 partially filled"
+  - complete.png: "All 81 frames captured, grid full"
+  - overlay_alpha.png: "Alpha heatmap overlay active"
+  - overlay_deltae.png: "ΔE heatmap overlay active"
+  - info_panel.png: "Technical explanation dialog"
+  - landscape.png: "Landscape orientation layout"
+  - dark_mode.png: "Dark theme variant"

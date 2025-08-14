@@ -1,0 +1,130 @@
+--- a/app/src/main/java/com/rgbagif/milestones/MilestoneManager.kt
++++ b/app/src/main/java/com/rgbagif/milestones/MilestoneManager.kt
+@@ -48,6 +48,9 @@ class MilestoneManager(
+     private var m2EndTime = 0L
+     private var m3StartTime = 0L
+     private var m3EndTime = 0L
++    
++    // Frame capture control
++    private var isCapturing = false
++    private val capturedFrames = mutableListOf<ByteArray>()
+     
+     /**
+      * Start Milestone 1: Capture 81 frames at 729×729
+@@ -80,15 +83,30 @@ class MilestoneManager(
+                 message = "Starting capture..."
+             )
+             
+-            // Configure camera for 729×729 capture
+-            cameraManager.setFrameCallback { rgba, width, height ->
+-                if (_progress.value.currentFrame < Milestone1Config.FRAME_COUNT) {
+-                    // Convert RGBA bytes to bitmap and process
+-                    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+-                    bitmap.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(rgba))
+-                    processM1Frame(bitmap)
++            // Start capturing frames
++            isCapturing = true
++            capturedFrames.clear()
++            
++            // Set frame callback to capture RGBA frames
++            cameraManager.setFrameCallback { rgba, width, height ->
++                if (isCapturing && _progress.value.currentFrame < Milestone1Config.FRAME_COUNT) {
++                    // Process frame in background
++                    scope.launch {
++                        processM1Frame(rgba, width, height)
++                    }
+                 }
+             }
+             
+-            // Note: Camera must be started from UI with proper lifecycle
+-            // For now, just wait for frames
++            // Wait for capture to complete
++            while (isCapturing && _progress.value.currentFrame < Milestone1Config.FRAME_COUNT) {
++                delay(100)
++            }
+             
+-            // Wait for all frames to be captured
+-            while (_progress.value.currentFrame < Milestone1Config.FRAME_COUNT) {
+-                delay(100)
+-            }
++            // Stop capturing
++            isCapturing = false
++            cameraManager.clearFrameCallback()
+             
+-            // Clear frame callback
+-            cameraManager.setFrameCallback { _, _, _ -> }
+             
+             // Generate PNGs from CBORs
+             generateM1Pngs()
+@@ -144,10 +162,17 @@ class MilestoneManager(
+         }
+     }
+     
+-    private fun processM1Frame(bitmap: Bitmap) {
+-        scope.launch {
+-            try {
+-                val frameIndex = _progress.value.currentFrame
++    private suspend fun processM1Frame(rgba: ByteArray, width: Int, height: Int) {
++        try {
++            val frameIndex = _progress.value.currentFrame
++            
++            // Skip if we've reached the target
++            if (frameIndex >= Milestone1Config.FRAME_COUNT) {
++                isCapturing = false
++                return
++            }
+                 
+                 // Log frame capture
+                 LogEvent.Entry(
+@@ -156,8 +181,8 @@ class MilestoneManager(
+                     sessionId = sessionId,
+                     frameIndex = frameIndex,
+                     extra = mapOf(
+-                        "width" to bitmap.width,
+-                        "height" to bitmap.height
++                        "width" to width,
++                        "height" to height
+                     )
+                 ).log()
+                 
+@@ -166,9 +191,9 @@ class MilestoneManager(
+                 cborFile.parentFile?.mkdirs()
+                 
+                 val frameData = com.rgbagif.tools.cbor.RgbaFrame(
+-                    width = bitmap.width,
+-                    height = bitmap.height,
+-                    rgba = bitmapToRgbaBytes(bitmap),
++                    width = width,
++                    height = height,
++                    rgba = rgba,
+                     timestampMs = System.currentTimeMillis(),
+                     meta = mapOf("frameIndex" to frameIndex.toString())
+                 )
+@@ -181,11 +206,15 @@ class MilestoneManager(
+                     currentFrame = frameIndex + 1,
+                     message = "Captured frame ${frameIndex + 1}/${Milestone1Config.FRAME_COUNT}"
+                 )
++            
++            // Check if capture complete
++            if (frameIndex + 1 >= Milestone1Config.FRAME_COUNT) {
++                isCapturing = false
++            }
+                 
+             } catch (e: Exception) {
+                 Log.e("MilestoneManager", "Frame processing error", e)
+             }
+-        }
+     }
+     
+     private suspend fun generateM1Pngs() {
+@@ -460,8 +489,9 @@ class MilestoneManager(
+      * Reset workflow to start over
+      */
+     fun reset() {
+         scope.launch {
+-            // cameraManager.stopCapture() // This method doesn't exist in CameraXManager
++            isCapturing = false
++            cameraManager.clearFrameCallback()
+             _progress.value = MilestoneProgress()
+             sessionId = UUID.randomUUID().toString()
+             sessionDir = null

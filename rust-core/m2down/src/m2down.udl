@@ -1,0 +1,50 @@
+namespace m2down {
+    // Get version string
+    string get_m2_version();
+    
+    // Main downsize function
+    [Throws=M2Error]
+    sequence<u8> m2_downsize_9x9_cpu(
+        sequence<u8> rgba_729,
+        u32 width,
+        u32 height
+    );
+    
+    // Neural network initialization
+    [Throws=M2Error]
+    void m2_initialize_model();
+    
+    // Performance and quality metrics
+    M2TimingStats get_m2_timing_stats();
+    M2QualityMetrics get_m2_quality_metrics();
+    void reset_m2_stats();
+};
+
+// Error types - simplified to avoid conflicts
+[Error]
+enum M2Error {
+    "InvalidInputDimensions",
+    "InvalidDataSize", 
+    "ModelLoadError",
+    "ProcessingError"
+};
+
+// Timing statistics
+dictionary M2TimingStats {
+    u64 total_duration_ms;
+    f64 avg_frame_ms;
+    f64 min_frame_ms;
+    f64 max_frame_ms;
+    u32 frames_processed;
+    sequence<f64> per_frame_timings;
+};
+
+// Quality metrics
+dictionary M2QualityMetrics {
+    f64 avg_ssim;
+    f64 avg_psnr;
+    f64 edge_preservation;
+    f64 policy_confidence_avg;
+    f64 value_prediction_avg;
+    f64 kernel_diversity;
+};

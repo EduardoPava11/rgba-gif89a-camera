@@ -1,0 +1,88 @@
+namespace gifpipe {};
+
+namespace gifpipe {
+    // Fast CBOR writer for M1 milestone  
+    [Throws=GifPipeError]
+    u32 write_cbor_frame(
+        sequence<u8> rgba_data,
+        u32 width,
+        u32 height,
+        u32 stride,
+        u64 timestamp_ms,
+        string output_path
+    );
+    
+    // Enhanced CBOR V2 writer with metadata
+    [Throws=GifPipeError]
+    u32 write_cbor_frame_v2(
+        sequence<u8> rgba_data,
+        u16 width,
+        u16 height,
+        u32 stride,
+        u16 frame_index,
+        u64 timestamp_ms,
+        u64 exposure_time_ns,
+        u32 iso_sensitivity,
+        f32 focal_length_mm,
+        f32 aperture_f_stop,
+        u32 color_temperature,
+        i16 tint_correction,
+        u64 sensor_timestamp,
+        u16 rotation_degrees,
+        boolean is_mirrored,
+        string output_path
+    );
+    
+    // Simplified CBOR V2 writer without metadata
+    [Throws=GifPipeError]
+    u32 write_cbor_frame_v2_simple(
+        sequence<u8> rgba_data,
+        u16 width,
+        u16 height,
+        u32 stride,
+        u16 frame_index,
+        u64 timestamp_ms,
+        string output_path
+    );
+    
+    // Verify CBOR V2 file integrity
+    [Throws=GifPipeError]
+    boolean verify_cbor_v2_file(string path);
+    
+    // Initialize Android logging
+    void init_android_logger();
+    
+    // M1 Verification Functions
+    string m1_debug_signature(sequence<u8> rgba, u32 w, u32 h);
+    sequence<u8> m1_preview_patch(sequence<u8> rgba, u32 w, u32 h);
+    
+    // NEW: M2+M3 Pipeline Functions (desktop-proven)
+    [Throws=GifPipeError]
+    sequence<u8> m2_downscale_rgba_729_to_81(sequence<u8> rgba_729);
+    
+    [Throws=GifPipeError]
+    void m3_gif89a_encode_rgba_frames(sequence<sequence<u8>> rgba_frames, string output_file);
+    
+    // Enhanced CBOR handling with parsing
+    [Throws=GifPipeError]
+    void cbor_write_frame_sequence(sequence<sequence<u8>> cbor_frames, string output_file);
+    
+    // Verification functions
+    [Throws=GifPipeError]
+    record<string, string> verify_gif89a_structure(string gif_file);
+    
+    [Throws=GifPipeError]
+    string calculate_file_hash(string file_path);
+};
+
+[Error]
+enum GifPipeError {
+    "InitializationError",
+    "FrameProcessingError", 
+    "QuantizationError",
+    "IoError",
+    "InvalidConfiguration",
+    "CborParseError",
+    "ImageProcessingError",
+    "ValidationError",
+};

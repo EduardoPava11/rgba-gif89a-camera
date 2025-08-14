@@ -1,0 +1,4 @@
+[bindings.kotlin]
+package_name = "uniffi.m3gif"
+cdylib_name = "m3gif"
+generate_immutable_records = true

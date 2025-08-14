@@ -1,0 +1,445 @@
+package com.yuvgif.camera
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.ImageFormat
+import android.graphics.SurfaceTexture
+import android.hardware.camera2.*
+import android.hardware.camera2.params.StreamConfigurationMap
+import android.media.ImageReader
+import android.os.Handler
+import android.os.HandlerThread
+import android.util.Log
+import android.util.Range
+import android.util.Size
+import android.view.Surface
+import android.view.TextureView
+import com.yuvgif.agents.BackpressureQA
+import com.yuvgif.agents.SessionBuilderAgent
+import com.yuvgif.errors.AppError
+import com.yuvgif.logging.JsonLog
+import com.yuvgif.tracing.Trace
+import com.yuvgif.utils.YuvToRgbConverter
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import java.nio.ByteBuffer
+import java.util.concurrent.Executor
+import java.util.concurrent.atomic.AtomicInteger
+
+/**
+ * Camera2 manager with dual outputs: preview surface + ImageReader
+ * Implements snapshot overlay pattern for freeze effect
+ */
+class CameraManager(private val context: Context) {
+    
+    companion object {
+        private const val TAG = "CameraManager"
+    }
+    
+    // Camera components
+    private var cameraDevice: CameraDevice? = null
+    private var captureSession: CameraCaptureSession? = null
+    private var imageReader: ImageReader? = null
+    private var previewSurface: Surface? = null
+    private var cameraConfig: CameraConfigAgent.CameraConfig? = null
+    private var sessionBuilder: SessionBuilderAgent? = null
+    private var textureView: TextureView? = null
+    private val previewTransform = PreviewTransform()
+    
+    // Single source of truth for capture geometry (defined in PreviewTransform)
+    // private val captureGeometry = CaptureGeometry.MILESTONE_1 // TODO: Fix import issue
+    private val backpressureQA = BackpressureQA(Milestone1Config.MAX_IMAGES)
+    private val yuvToRgbConverter = YuvToRgbConverter()
+    
+    // Threading
+    private val cameraThread = HandlerThread("CameraThread").apply { start() }
+    private val cameraHandler = Handler(cameraThread.looper)
+    private val imageReaderThread = HandlerThread("ImageReaderThread").apply { start() }
+    private val imageReaderHandler = Handler(imageReaderThread.looper)
+    
+    // State
+    private val _previewState = MutableStateFlow(PreviewState.IDLE)
+    val previewState: StateFlow<PreviewState> = _previewState.asStateFlow()
+    
+    private val _latestSnapshot = MutableStateFlow<Bitmap?>(null)
+    val latestSnapshot: StateFlow<Bitmap?> = _latestSnapshot.asStateFlow()
+    
+    // Frame callback - now passes RGB bitmap instead of raw YUV
+    private var frameProcessor: ((Bitmap) -> Unit)? = null
+    private var isProcessing = false
+    
+    // Backpressure monitoring
+    private val imagesAcquired = AtomicInteger(0)
+    private val imagesClosed = AtomicInteger(0)
+    private var lastBackpressureLog = 0L
+    
+    enum class PreviewState {
+        IDLE, LIVE, FROZEN, ERROR
+    }
+    
+    /**
+     * Initialize camera (no preview surface needed - we use RGB bus)
+     */
+    fun setupCamera(
+        onFrameAvailable: (Bitmap) -> Unit
+    ) {
+        frameProcessor = onFrameAvailable
+        
+        // Create dummy surface for camera (we'll extract RGB from ImageReader)
+        val dummyTexture = SurfaceTexture(0)
+        openCamera(dummyTexture)
+    }
+    
+    // Removed - now handled by WysiwygPreview
+    
+    /**
+     * Open camera and create session with dual outputs
+     */
+    private fun openCamera(surfaceTexture: SurfaceTexture) {
+        try {
+            // Query and select camera configuration
+            val configAgent = CameraConfigAgent(context)
+            cameraConfig = configAgent.selectConfiguration()
+            val config = cameraConfig!!
+            
+            // Validate configuration
+            configAgent.validateConfiguration(config)
+            
+            // CRITICAL: Set buffer size to 1920×1440 BEFORE creating session
+            // This ensures the camera outputs the expected dimensions
+            surfaceTexture.setDefaultBufferSize(config.captureSize.width, config.captureSize.height)
+            previewSurface = Surface(surfaceTexture)
+            
+            JsonLog.event(
+                agent = "CameraManager",
+                stage = "buffer_size_set",
+                message = "SurfaceTexture buffer size set to ${config.captureSize.width}×${config.captureSize.height}"
+            )
+            
+            // Create ImageReader for YUV capture with selected size
+            imageReader = ImageReader.newInstance(
+                config.captureSize.width, 
+                config.captureSize.height,
+                ImageFormat.YUV_420_888,
+                Milestone1Config.MAX_IMAGES
+            ).apply {
+                setOnImageAvailableListener({ reader ->
+                    handleImageAvailable(reader)
+                }, imageReaderHandler)
+            }
+            
+            // Open camera with selected ID
+            val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
+            cameraManager.openCamera(config.cameraId, object : CameraDevice.StateCallback() {
+                override fun onOpened(camera: CameraDevice) {
+                    cameraDevice = camera
+                    createCaptureSession()
+                }
+                
+                override fun onDisconnected(camera: CameraDevice) {
+                    camera.close()
+                    cameraDevice = null
+                    _previewState.value = PreviewState.ERROR
+                }
+                
+                override fun onError(camera: CameraDevice, error: Int) {
+                    camera.close()
+                    cameraDevice = null
+                    _previewState.value = PreviewState.ERROR
+                    Log.e(TAG, "Camera error: $error")
+                }
+            }, cameraHandler)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to open camera", e)
+            _previewState.value = PreviewState.ERROR
+        }
+    }
+    
+    /**
+     * Create capture session with preview + ImageReader outputs
+     */
+    private fun createCaptureSession() {
+        val camera = cameraDevice ?: return
+        val reader = imageReader ?: return
+        val preview = previewSurface ?: return
+        
+        try {
+            // Configure dual outputs: preview surface + ImageReader
+            val outputs = listOf(preview, reader.surface)
+            
+            camera.createCaptureSession(outputs, object : CameraCaptureSession.StateCallback() {
+                override fun onConfigured(session: CameraCaptureSession) {
+                    captureSession = session
+                    startPreview()
+                }
+                
+                override fun onConfigureFailed(session: CameraCaptureSession) {
+                    Log.e(TAG, "Failed to configure capture session")
+                    _previewState.value = PreviewState.ERROR
+                }
+            }, cameraHandler)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create capture session", e)
+            _previewState.value = PreviewState.ERROR
+        }
+    }
+    
+    /**
+     * Start preview with repeating requests to both outputs
+     */
+    private fun startPreview() {
+        val session = captureSession ?: return
+        val camera = cameraDevice ?: return
+        val reader = imageReader ?: return
+        val preview = previewSurface ?: return
+        
+        try {
+            // Use configured FPS range from CameraConfigAgent
+            val config = cameraConfig ?: return
+            val selectedRange = config.fpsRange
+            
+            JsonLog.event(
+                agent = "CameraManager",
+                stage = "camera_config",
+                message = "FPS configuration",
+                fpsRequested = Milestone1Config.TARGET_FPS.toString(),
+                fpsApplied = "[${selectedRange.lower},${selectedRange.upper}]"
+            )
+            
+            Log.d(TAG, "Using FPS range: $selectedRange")
+            
+            // Build request targeting both surfaces
+            val requestBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+                addTarget(preview)
+                addTarget(reader.surface)
+                set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
+                selectedRange?.let {
+                    set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it)
+                }
+            }
+            
+            // Start repeating request with callback to log applied FPS
+            session.setRepeatingRequest(
+                requestBuilder.build(),
+                object : CameraCaptureSession.CaptureCallback() {
+                    override fun onCaptureCompleted(
+                        session: CameraCaptureSession,
+                        request: CaptureRequest,
+                        result: TotalCaptureResult
+                    ) {
+                        // Log applied FPS range from first frame
+                        if (_previewState.value != PreviewState.LIVE) {
+                            val appliedRange = result.get(CaptureResult.CONTROL_AE_TARGET_FPS_RANGE)
+                            JsonLog.event(
+                                agent = "CameraManager",
+                                stage = "camera_capture",
+                                message = "FPS range applied",
+                                fpsApplied = appliedRange?.toString() ?: "unknown"
+                            )
+                            Log.d(TAG, "Applied FPS range: $appliedRange")
+                            _previewState.value = PreviewState.LIVE
+                        }
+                    }
+                },
+                cameraHandler
+            )
+            
+            Log.d(TAG, "Preview started with dual outputs")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start preview", e)
+            _previewState.value = PreviewState.ERROR
+        }
+    }
+    
+    /**
+     * Handle frames from ImageReader
+     * Use ImageReader#acquireLatestImage() and always image.close() to avoid backpressure stalls
+     * Reference: https://developer.android.com/reference/android/media/ImageReader#acquireLatestImage()
+     */
+    private fun handleImageAvailable(reader: ImageReader) {
+        val startTime = System.currentTimeMillis()
+        
+        // Use acquireLatestImage for real-time processing (auto-drops old frames)
+        // Always image.close() to avoid backpressure stalls when maxImages is reached
+        val acquireStart = System.currentTimeMillis()
+        val image = reader.acquireLatestImage() ?: return
+        val acquireLatency = System.currentTimeMillis() - acquireStart
+        
+        imagesAcquired.incrementAndGet()
+        backpressureQA.recordAcquire(acquireLatency)
+        
+        try {
+            Trace.trace("camera.acquire") {
+                // Monitor backpressure (log every second)
+                val now = System.currentTimeMillis()
+                val backlog = imagesAcquired.get() - imagesClosed.get()
+                
+                if (now - lastBackpressureLog > 1000) {
+                    JsonLog.event(
+                        agent = "CameraManager",
+                        stage = "image_reader",
+                        message = "Backpressure status",
+                        readerBacklog = backlog,
+                        maxImages = Milestone1Config.MAX_IMAGES
+                    )
+                    lastBackpressureLog = now
+                    
+                    // Warn if approaching limit
+                    if (backlog >= Milestone1Config.MAX_IMAGES - 1) {
+                        Log.w(TAG, "WARNING: ImageReader near maxImages limit: $backlog/${Milestone1Config.MAX_IMAGES}")
+                        JsonLog.event(
+                            agent = "CameraManager",
+                            stage = "image_reader",
+                            message = "Near maxImages limit",
+                            errorCode = "BACKPRESSURE_WARNING",
+                            readerBacklog = backlog,
+                            maxImages = Milestone1Config.MAX_IMAGES
+                        )
+                    }
+                }
+                
+                // Only process if not already busy
+                if (!isProcessing && frameProcessor != null) {
+                    // Convert YUV to RGB bitmap using proper converter (1920×1440)
+                    val fullBitmap = Bitmap.createBitmap(
+                        image.width, 
+                        image.height, 
+                        Bitmap.Config.ARGB_8888
+                    )
+                    
+                    Trace.trace("camera.yuv2rgb") {
+                        try {
+                            // Use stride-safe YUV to RGB converter
+                            yuvToRgbConverter.yuvToRgb(image, fullBitmap)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "YUV conversion failed", e)
+                            JsonLog.event(
+                                agent = "CameraManager",
+                                stage = "yuv_convert",
+                                message = "YUV to RGB conversion failed: ${e.message}",
+                                errorCode = "YUV_CONVERT_ERROR"
+                            )
+                            return@trace
+                        }
+                    }
+                    
+                    // Crop to center 1440×1440 for preview and saving
+                    val croppedBitmap = Bitmap.createBitmap(
+                        fullBitmap,
+                        240, // x offset for center crop
+                        0,   // y offset
+                        1440, // width
+                        1440  // height
+                    )
+                    
+                    // Publish cropped RGB to preview bus - THIS IS WHAT USERS SEE
+                    RgbFrameBus.updateBitmap(croppedBitmap)
+                    
+                    // Save snapshot for freeze overlay
+                    if (_previewState.value == PreviewState.LIVE) {
+                        _latestSnapshot.value = croppedBitmap
+                    }
+                    
+                    // Forward cropped RGB bitmap to processor (for CBOR/PNG saving)
+                    frameProcessor?.invoke(croppedBitmap)
+                }
+            }
+        } catch (e: Exception) {
+            val error = AppError.from(e, "camera_capture")
+            JsonLog.event(
+                agent = "CameraManager",
+                stage = "image_reader",
+                message = "Failed to process image: ${error.message}",
+                errorCode = error.code
+            )
+        } finally {
+            // ALWAYS close to prevent maxImages crash
+            val closeStart = System.currentTimeMillis()
+            image.close()
+            val closeLatency = System.currentTimeMillis() - closeStart
+            
+            imagesClosed.incrementAndGet()
+            backpressureQA.recordClose(closeLatency)
+            
+            val latency = System.currentTimeMillis() - startTime
+            if (latency > 41) { // Log slow frames
+                JsonLog.event(
+                    agent = "CameraManager",
+                    stage = "image_reader",
+                    message = "Slow frame processing",
+                    latencyMs = latency
+                )
+            }
+        }
+    }
+    
+    
+    /**
+     * Freeze preview (show snapshot overlay)
+     */
+    fun freezePreview() {
+        _previewState.value = PreviewState.FROZEN
+        isProcessing = true
+        Log.d(TAG, "Preview frozen with snapshot overlay")
+    }
+    
+    /**
+     * Unfreeze preview (hide snapshot overlay)
+     */
+    fun unfreezePreview() {
+        _previewState.value = PreviewState.LIVE
+        isProcessing = false
+        Log.d(TAG, "Preview unfrozen, back to live")
+    }
+    
+    /**
+     * Clean up camera resources
+     */
+    fun release() {
+        captureSession?.close()
+        captureSession = null
+        
+        cameraDevice?.close()
+        cameraDevice = null
+        
+        imageReader?.close()
+        imageReader = null
+        
+        previewSurface?.release()
+        previewSurface = null
+        
+        cameraThread.quitSafely()
+        imageReaderThread.quitSafely()
+        
+        _previewState.value = PreviewState.IDLE
+    }
+    
+    // --- BEGIN RGB PREVIEW BUS ---
+    object RgbFrameBus {
+        interface Listener { fun onRgbFrame(bmp: android.graphics.Bitmap) }
+        private val listeners = java.util.concurrent.CopyOnWriteArraySet<Listener>()
+        @Volatile private var bmp: android.graphics.Bitmap? = null
+
+        fun update(bytes: ByteArray, w: Int, h: Int) {
+            // reuse/allocate a mutable ARGB_8888 bitmap
+            val b = bmp?.takeIf { it.width == w && it.height == h }
+                ?: android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888).also { bmp = it }
+            b.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(bytes))
+            for (l in listeners) l.onRgbFrame(b)
+        }
+        
+        fun updateBitmap(bitmap: android.graphics.Bitmap) {
+            // Direct bitmap update for when we already have the cropped bitmap
+            bmp = bitmap
+            for (l in listeners) l.onRgbFrame(bitmap)
+        }
+        
+        fun add(l: Listener) { listeners.add(l); bmp?.let { l.onRgbFrame(it) } }
+        fun remove(l: Listener) { listeners.remove(l) }
+    }
+    // --- END RGB PREVIEW BUS ---
+}

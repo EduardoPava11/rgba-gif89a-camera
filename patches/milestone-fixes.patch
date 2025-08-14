@@ -1,0 +1,313 @@
+diff --git a/app/src/main/java/com/rgbagif/milestones/MilestoneManager.kt b/app/src/main/java/com/rgbagif/milestones/MilestoneManager.kt
+index 1234567..abcdefg 100644
+--- a/app/src/main/java/com/rgbagif/milestones/MilestoneManager.kt
++++ b/app/src/main/java/com/rgbagif/milestones/MilestoneManager.kt
+@@ -65,12 +65,10 @@ class MilestoneManager(
+             LogEvent.Entry(
+                 event = "session_start",
+                 milestone = "M1",
+                 sessionId = sessionId,
+-                timestamp = System.currentTimeMillis(),
+-                metadata = JSONObject().apply {
++                extra = mapOf(
+                     put("frame_count", Milestone1Config.FRAME_COUNT)
+                     put("resolution", "${Milestone1Config.CAPTURE_WIDTH}x${Milestone1Config.CAPTURE_HEIGHT}")
+-                }
++                )
+             ).log()
+             
+             _progress.value = MilestoneProgress(
+@@ -107,12 +105,10 @@ class MilestoneManager(
+             LogEvent.Entry(
+                 event = "milestone_complete",
+                 milestone = "M1",
+                 sessionId = sessionId,
+-                timestamp = System.currentTimeMillis(),
+-                timing = JSONObject().apply {
++                extra = mapOf(
+                     put("duration_ms", m1Duration)
+                     put("frames_captured", _progress.value.currentFrame)
+-                }
++                )
+             ).log()
+             
+             _progress.value = _progress.value.copy(
+@@ -123,11 +119,14 @@ class MilestoneManager(
+             
+         } catch (e: Exception) {
+             Log.e("MilestoneManager", "M1 error", e)
+-            LogEvent.error(
+-                code = LogEvent.ERR_CAPTURE_FAILED,
+-                message = e.message ?: "Unknown error",
++            LogEvent.Entry(
++                event = LogEvent.EVENT_ERROR,
+                 milestone = "M1",
+-                sessionId = sessionId
++                sessionId = sessionId,
++                ok = false,
++                errCode = LogEvent.E_IO,
++                errMsg = e.message,
++                tag = LogEvent.TAG_ERROR
+             ).log()
+             _progress.value = _progress.value.copy(
+                 state = MilestoneState.ERROR,
+@@ -147,12 +146,11 @@ class MilestoneManager(
+                 LogEvent.Entry(
+                     event = "frame_captured",
+                     milestone = "M1",
+                     sessionId = sessionId,
+-                    timestamp = System.currentTimeMillis(),
+-                    metadata = JSONObject().apply {
+-                        put("frame_index", frameIndex)
+-                        put("width", bitmap.width)
+-                        put("height", bitmap.height)
+-                    }
++                    frameIndex = frameIndex,
++                    extra = mapOf(
++                        "width" to bitmap.width,
++                        "height" to bitmap.height
++                    )
+                 ).log()
+                 
+                 // Save as CBOR
+@@ -162,9 +160,9 @@ class MilestoneManager(
+                 val frameData = com.rgbagif.tools.cbor.RgbaFrame(
+                     width = bitmap.width,
+                     height = bitmap.height,
+-                    data = bitmapToRgbaBytes(bitmap),
+-                    timestamp = System.currentTimeMillis(),
+-                    frameIndex = frameIndex
++                    rgba = bitmapToRgbaBytes(bitmap),
++                    timestampMs = System.currentTimeMillis(),
++                    meta = mapOf("frameIndex" to frameIndex.toString())
+                 )
+                 
+                 val cborBytes = CborTools.encodeFrame(frameData)
+@@ -198,11 +196,10 @@ class MilestoneManager(
+                 LogEvent.Entry(
+                     event = "png_generated",
+                     milestone = "M1",
+                     sessionId = sessionId,
+-                    timestamp = System.currentTimeMillis(),
+-                    metadata = JSONObject().apply {
+-                        put("cbor_file", cborFile.name)
+-                        put("png_file", pngFile.name)
+-                    }
++                    extra = mapOf(
++                        "cbor_file" to cborFile.name,
++                        "png_file" to pngFile.name
++                    )
+                 ).log()
+             } catch (e: Exception) {
+                 Log.e("MilestoneManager", "PNG generation error", e)
+@@ -227,8 +224,7 @@ class MilestoneManager(
+             LogEvent.Entry(
+                 event = "milestone_start",
+                 milestone = "M2",
+-                sessionId = sessionId,
+-                timestamp = System.currentTimeMillis()
++                sessionId = sessionId
+             ).log()
+             
+             // Process each CBOR frame through neural network
+@@ -256,13 +252,12 @@ class MilestoneManager(
+                 LogEvent.Entry(
+                     event = "frame_downsized",
+                     milestone = "M2",
+                     sessionId = sessionId,
+-                    timestamp = System.currentTimeMillis(),
+-                    metadata = JSONObject().apply {
+-                        put("frame_index", index)
+-                        put("original_size", "${frame.width}x${frame.height}")
+-                        put("downsized_size", "${downsized.width}x${downsized.height}")
+-                    }
++                    frameIndex = index,
++                    extra = mapOf(
++                        "original_size" to "${frame.width}x${frame.height}",
++                        "downsized_size" to "${downsized.width}x${downsized.height}"
++                    )
+                 ).log()
+             }
+             
+@@ -275,11 +270,10 @@ class MilestoneManager(
+             LogEvent.Entry(
+                 event = "milestone_complete",
+                 milestone = "M2",
+                 sessionId = sessionId,
+-                timestamp = System.currentTimeMillis(),
+-                timing = JSONObject().apply {
+-                    put("duration_ms", m2Duration)
+-                    put("frames_processed", cborFiles.size)
+-                }
++                extra = mapOf(
++                    "duration_ms" to m2Duration,
++                    "frames_processed" to cborFiles.size
++                )
+             ).log()
+             
+             _progress.value = _progress.value.copy(
+@@ -290,11 +284,14 @@ class MilestoneManager(
+             
+         } catch (e: Exception) {
+             Log.e("MilestoneManager", "M2 error", e)
+-            LogEvent.error(
+-                code = LogEvent.ERR_DOWNSIZE_FAILED,
+-                message = e.message ?: "Unknown error",
++            LogEvent.Entry(
++                event = LogEvent.EVENT_ERROR,
+                 milestone = "M2",
+-                sessionId = sessionId
++                sessionId = sessionId,
++                ok = false,
++                errCode = LogEvent.E_NN_INFER,
++                errMsg = e.message,
++                tag = LogEvent.TAG_ERROR
+             ).log()
+             _progress.value = _progress.value.copy(
+                 state = MilestoneState.ERROR,
+@@ -338,8 +335,7 @@ class MilestoneManager(
+             LogEvent.Entry(
+                 event = "milestone_start",
+                 milestone = "M3",
+-                sessionId = sessionId,
+-                timestamp = System.currentTimeMillis()
++                sessionId = sessionId
+             ).log()
+             
+             // Process downsized frames for quantization
+@@ -365,10 +361,9 @@ class MilestoneManager(
+                 LogEvent.Entry(
+                     event = "frame_quantized",
+                     milestone = "M3",
+                     sessionId = sessionId,
+-                    timestamp = System.currentTimeMillis(),
+-                    metadata = JSONObject().apply {
+-                        put("frame_index", index)
+-                    }
++                    frameIndex = index,
++                    extra = mapOf("quantized" to true)
+                 ).log()
+             }
+             
+@@ -386,12 +381,11 @@ class MilestoneManager(
+             LogEvent.Entry(
+                 event = "milestone_complete",
+                 milestone = "M3",
+                 sessionId = sessionId,
+-                timestamp = System.currentTimeMillis(),
+-                timing = JSONObject().apply {
+-                    put("duration_ms", m3Duration)
+-                    put("gif_file", gifFile.name)
+-                    put("gif_size_bytes", gifFile.length())
+-                }
++                extra = mapOf(
++                    "duration_ms" to m3Duration,
++                    "gif_file" to gifFile.name,
++                    "gif_size_bytes" to gifFile.length()
++                )
+             ).log()
+             
+             _progress.value = _progress.value.copy(
+@@ -405,23 +399,26 @@ class MilestoneManager(
+             LogEvent.Entry(
+                 event = "workflow_complete",
+                 milestone = "ALL",
+                 sessionId = sessionId,
+-                timestamp = System.currentTimeMillis(),
+-                timing = JSONObject().apply {
+-                    put("m1_duration_ms", m1EndTime - m1StartTime)
+-                    put("m2_duration_ms", m2EndTime - m2StartTime)
+-                    put("m3_duration_ms", m3Duration)
+-                    put("total_duration_ms", totalDuration)
+-                }
++                extra = mapOf(
++                    "m1_duration_ms" to (m1EndTime - m1StartTime),
++                    "m2_duration_ms" to (m2EndTime - m2StartTime),
++                    "m3_duration_ms" to m3Duration,
++                    "total_duration_ms" to totalDuration
++                )
+             ).log()
+             
+         } catch (e: Exception) {
+             Log.e("MilestoneManager", "M3 error", e)
+-            LogEvent.error(
+-                code = LogEvent.ERR_GIF_FAILED,
+-                message = e.message ?: "Unknown error",
++            LogEvent.Entry(
++                event = LogEvent.EVENT_ERROR,
+                 milestone = "M3",
+-                sessionId = sessionId
++                sessionId = sessionId,
++                ok = false,
++                errCode = LogEvent.E_GIF_ENCODE,
++                errMsg = e.message,
++                tag = LogEvent.TAG_ERROR
+             ).log()
+             _progress.value = _progress.value.copy(
+                 state = MilestoneState.ERROR,
+@@ -436,7 +433,7 @@ class MilestoneManager(
+      */
+     fun reset() {
+         scope.launch {
+-            cameraManager.stopCapture()
++            // cameraManager.stopCapture() // This method doesn't exist in CameraXManager
+             _progress.value = MilestoneProgress()
+             sessionId = UUID.randomUUID().toString()
+             sessionDir = null
+@@ -472,15 +469,15 @@ class MilestoneManager(
+         
+         for (y in 0 until targetSize) {
+             for (x in 0 until targetSize) {
+                 val srcX = (x * scaleFactor).toInt().coerceIn(0, frame.width - 1)
+                 val srcY = (y * scaleFactor).toInt().coerceIn(0, frame.height - 1)
+                 val srcIdx = (srcY * frame.width + srcX) * 4
+                 val dstIdx = (y * targetSize + x) * 4
+                 
+-                System.arraycopy(frame.data, srcIdx, downsizedData, dstIdx, 4)
++                System.arraycopy(frame.rgba, srcIdx, downsizedData, dstIdx, 4)
+             }
+         }
+         
+         return frame.copy(
+             width = targetSize,
+             height = targetSize,
+-            data = downsizedData
++            rgba = downsizedData
+         )
+     }
+     
+     private fun quantizeColors(frame: com.rgbagif.tools.cbor.RgbaFrame): com.rgbagif.tools.cbor.RgbaFrame {
+         // Placeholder - actual implementation will use proper color quantization
+         // For now, simple bit reduction to simulate 256 colors
+-        val quantizedData = frame.data.copyOf()
++        val quantizedData = frame.rgba.copyOf()
+         
+         for (i in quantizedData.indices step 4) {
+             quantizedData[i] = (quantizedData[i].toInt() and 0xF0).toByte()     // R
+             quantizedData[i + 1] = (quantizedData[i + 1].toInt() and 0xF0).toByte() // G
+             quantizedData[i + 2] = (quantizedData[i + 2].toInt() and 0xF0).toByte() // B
+             // Keep alpha unchanged
+         }
+         
+-        return frame.copy(data = quantizedData)
++        return frame.copy(rgba = quantizedData)
+     }
+     
+     private suspend fun createGif89a(quantizedDir: File, outputFile: File) {
+@@ -542,11 +539,10 @@ class MilestoneManager(
+         LogEvent.Entry(
+             event = "gif_created",
+             milestone = "M3",
+             sessionId = sessionId,
+-            timestamp = System.currentTimeMillis(),
+-            metadata = JSONObject().apply {
+-                put("output_file", outputFile.absolutePath)
+-                put("frame_count", quantizedDir.listFiles()?.size ?: 0)
+-            }
++            extra = mapOf(
++                "output_file" to outputFile.absolutePath,
++                "frame_count" to (quantizedDir.listFiles()?.size ?: 0)
++            )
+         ).log()
+     }
+     

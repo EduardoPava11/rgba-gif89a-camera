@@ -1,0 +1,27 @@
+namespace gifpipe {};
+
+// Fast CBOR writer functions
+namespace gifpipe {
+    // Write CBOR frame from RGBA data
+    [Throws=GifPipeError]
+    u32 write_cbor_frame(
+        sequence<u8> rgba_data,
+        u32 width,
+        u32 height,
+        u32 stride,
+        u64 timestamp_ms,
+        string output_path
+    );
+    
+    // Initialize Android logging
+    void init_android_logger();
+};
+
+[Error]
+enum GifPipeError {
+    "InitializationError",
+    "FrameProcessingError",
+    "QuantizationError",
+    "IoError",
+    "InvalidConfiguration",
+};

@@ -1,0 +1,139 @@
+--- a/app/src/main/java/com/rgbagif/milestones/MilestoneWorkflowScreen.kt
++++ b/app/src/main/java/com/rgbagif/milestones/MilestoneWorkflowScreen.kt
+@@ -117,6 +117,21 @@ fun MilestoneWorkflowScreen(
+         
+         Spacer(modifier = Modifier.height(16.dp))
+         
++        // Capture Control Button (when camera is ready)
++        if (cameraPermissionState.hasPermission && progress.state == MilestoneState.IDLE) {
++            CaptureButton(
++                onClick = {
++                    scope.launch {
++                        milestoneManager.startMilestone1()
++                    }
++                },
++                modifier = Modifier
++                    .fillMaxWidth()
++                    .padding(vertical = 8.dp)
++            )
++            Spacer(modifier = Modifier.height(16.dp))
++        }
++        
+         // Milestone Cards
+         MilestoneCard(
+             milestone = 1,
+@@ -158,10 +173,7 @@ fun MilestoneWorkflowScreen(
+             processingTime = if (progress.milestone >= 1 && progress.processingTimeMs > 0) 
+                 progress.processingTimeMs else null,
+             enabled = cameraPermissionState.hasPermission && progress.state == MilestoneState.IDLE,
+             onStart = {
+-                if (cameraPermissionState.hasPermission) {
+-                    scope.launch {
+-                        milestoneManager.startMilestone1()
+-                    }
++                // Capture is now handled by the main capture button
+                 }
+             },
+             onViewFrames = {
+@@ -247,6 +259,61 @@ fun MilestoneWorkflowScreen(
+     }
+ }
+ 
++/**
++ * Large, accessible capture button
++ */
++@Composable
++fun CaptureButton(
++    onClick: () -> Unit,
++    modifier: Modifier = Modifier
++) {
++    Button(
++        onClick = onClick,
++        modifier = modifier.height(64.dp),
++        colors = ButtonDefaults.buttonColors(
++            containerColor = MatrixGreen,
++            contentColor = Color.Black
++        ),
++        shape = RoundedCornerShape(32.dp)
++    ) {
++        Row(
++            verticalAlignment = Alignment.CenterVertically,
++            horizontalArrangement = Arrangement.Center
++        ) {
++            Icon(
++                imageVector = Icons.Filled.Camera,
++                contentDescription = "Start Capture",
++                modifier = Modifier.size(32.dp)
++            )
++            Spacer(modifier = Modifier.width(12.dp))
++            Text(
++                text = "START CAPTURE",
++                style = MaterialTheme.typography.titleMedium,
++                fontWeight = FontWeight.Bold
++            )
++        }
++    }
++}
++
++/**
++ * Live capture progress indicator
++ */
++@Composable
++fun CaptureProgress(
++    current: Int,
++    total: Int,
++    modifier: Modifier = Modifier
++) {
++    Row(
++        modifier = modifier,
++        verticalAlignment = Alignment.CenterVertically
++    ) {
++        CircularProgressIndicator(
++            progress = current.toFloat() / total.toFloat(),
++            modifier = Modifier.size(24.dp),
++            color = MatrixGreen,
++            strokeWidth = 3.dp
++        )
++        Spacer(modifier = Modifier.width(12.dp))
++        Text(
++            text = "$current / $total frames",
++            style = MaterialTheme.typography.bodyLarge,
++            color = Color.White
++        )
++    }
++}
++
+ /**
+  * Camera preview panel with square aspect ratio
+  */
+@@ -258,6 +325,33 @@ fun PreviewPanel(
+     Card(
+         modifier = modifier
+             .fillMaxWidth()
+             .aspectRatio(1f), // Square aspect ratio
+         shape = RoundedCornerShape(12.dp),
+         colors = CardDefaults.cardColors(containerColor = Color.Black)
++    ) {
++        Box(modifier = Modifier.fillMaxSize()) {
++            AndroidView(
++                factory = { 
++                    previewView.apply { 
++                        scaleType = ScaleType.FILL_CENTER
++                    }
++                },
++                modifier = Modifier.fillMaxSize()
++            )
++            
++            // Overlay frame guide (optional)
++            Box(
++                modifier = Modifier
++                    .fillMaxSize()
++                    .border(
++                        width = 2.dp,
++                        color = Color.White.copy(alpha = 0.3f),
++                        shape = RoundedCornerShape(12.dp)
++                    )
++            )
++        }
++    }
++}

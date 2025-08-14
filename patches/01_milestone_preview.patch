@@ -1,0 +1,207 @@
+--- a/app/src/main/java/com/rgbagif/milestones/MilestoneWorkflowScreen.kt
++++ b/app/src/main/java/com/rgbagif/milestones/MilestoneWorkflowScreen.kt
+@@ -1,5 +1,6 @@
+ package com.rgbagif.milestones
+ 
++import android.Manifest
+ import androidx.compose.animation.animateContentSize
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.border
+@@ -19,12 +20,18 @@ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.draw.clip
+ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.graphics.vector.ImageVector
++import androidx.compose.ui.platform.LocalLifecycleOwner
+ import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+ import androidx.compose.ui.unit.sp
+ import androidx.compose.ui.text.font.FontFamily
++import androidx.compose.ui.viewinterop.AndroidView
++import androidx.camera.view.PreviewView
++import androidx.camera.view.PreviewView.ScaleType
++import com.google.accompanist.permissions.ExperimentalPermissionsApi
++import com.google.accompanist.permissions.rememberPermissionState
+ import androidx.lifecycle.compose.collectAsStateWithLifecycle
+ import androidx.compose.foundation.BorderStroke
+ import com.rgbagif.camera.CameraXManager
+@@ -34,6 +41,7 @@ import java.text.SimpleDateFormat
+ import java.util.*
+ 
+ /**
+  * Main milestone workflow screen showing the 3-phase process
+  */
++@OptIn(ExperimentalPermissionsApi::class)
+ @Composable
+ fun MilestoneWorkflowScreen(
+@@ -42,8 +50,12 @@ fun MilestoneWorkflowScreen(
+ ) {
+     val context = LocalContext.current
++    val lifecycleOwner = LocalLifecycleOwner.current
+     val scope = rememberCoroutineScope()
+     val scrollState = rememberScrollState()
+     
++    // Camera permission state
++    val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
++    
+     // Create milestone manager
+     val milestoneManager = remember { MilestoneManager(context, cameraManager) }
+@@ -54,6 +66,21 @@ fun MilestoneWorkflowScreen(
+             milestoneManager.cleanup()
+         }
+     }
++    
++    // Camera preview reference
++    val previewView = remember { PreviewView(context) }
++    
++    // Set up camera when permission is granted
++    LaunchedEffect(cameraPermissionState.hasPermission) {
++        if (cameraPermissionState.hasPermission) {
++            cameraManager.setPreviewView(previewView)
++            cameraManager.setupCamera(lifecycleOwner) { bitmap ->
++                // Frame callback will be wired to milestone manager
++            }
++            cameraManager.setFrameCallback { rgba, width, height ->
++                // This will be consumed by MilestoneManager during M1
++            }
++        }
++    }
+     
+     Column(
+@@ -75,6 +102,45 @@ fun MilestoneWorkflowScreen(
+             color = Color.Gray,
+             modifier = Modifier.padding(bottom = 24.dp)
+         )
++        
++        // Camera Preview Panel
++        if (cameraPermissionState.hasPermission) {
++            PreviewPanel(previewView = previewView)
++        } else {
++            PermissionRequestCard(
++                onRequestPermission = {
++                    cameraPermissionState.launchPermissionRequest()
++                }
++            )
++        }
++        
++        Spacer(modifier = Modifier.height(16.dp))
+         
+         // Milestone Cards
+         MilestoneCard(
+@@ -89,13 +155,18 @@ fun MilestoneWorkflowScreen(
+                 MilestoneState.MILESTONE_1_COMPLETE -> CardState.COMPLETE
+                 else -> if (progress.milestone > 1) CardState.COMPLETE else CardState.LOCKED
+             },
+             progress = if (progress.milestone == 1) progress else null,
+             processingTime = if (progress.milestone >= 1 && progress.processingTimeMs > 0) 
+                 progress.processingTimeMs else null,
++            enabled = cameraPermissionState.hasPermission && progress.state == MilestoneState.IDLE,
+             onStart = {
+-                scope.launch {
+-                    milestoneManager.startMilestone1()
++                if (cameraPermissionState.hasPermission) {
++                    scope.launch {
++                        milestoneManager.startMilestone1()
++                    }
+                 }
+             },
+             onViewFrames = {
+@@ -176,6 +247,72 @@ fun MilestoneWorkflowScreen(
+ }
+ 
++/**
++ * Camera preview panel with square aspect ratio
++ */
++@Composable
++fun PreviewPanel(
++    previewView: PreviewView,
++    modifier: Modifier = Modifier
++) {
++    Card(
++        modifier = modifier
++            .fillMaxWidth()
++            .aspectRatio(1f), // Square aspect ratio
++        shape = RoundedCornerShape(12.dp),
++        colors = CardDefaults.cardColors(containerColor = Color.Black)
++    ) {
++        AndroidView(
++            factory = { previewView.apply { 
++                scaleType = ScaleType.FILL_CENTER
++            } },
++            modifier = Modifier.fillMaxSize()
++        )
++    }
++}
++
++/**
++ * Permission request card
++ */
++@Composable
++fun PermissionRequestCard(
++    onRequestPermission: () -> Unit,
++    modifier: Modifier = Modifier
++) {
++    Card(
++        modifier = modifier
++            .fillMaxWidth()
++            .aspectRatio(1f),
++        shape = RoundedCornerShape(12.dp),
++        colors = CardDefaults.cardColors(containerColor = NeutralMid)
++    ) {
++        Column(
++            modifier = Modifier
++                .fillMaxSize()
++                .padding(24.dp),
++            horizontalAlignment = Alignment.CenterHorizontally,
++            verticalArrangement = Arrangement.Center
++        ) {
++            Icon(
++                imageVector = Icons.Filled.Camera,
++                contentDescription = "Camera",
++                modifier = Modifier.size(64.dp),
++                tint = Color.Gray
++            )
++            Spacer(modifier = Modifier.height(16.dp))
++            Text(
++                text = "Camera Permission Required",
++                style = MaterialTheme.typography.titleMedium,
++                color = Color.White
++            )
++            Spacer(modifier = Modifier.height(8.dp))
++            Text(
++                text = "This app needs camera access to capture frames for GIF creation",
++                style = MaterialTheme.typography.bodyMedium,
++                color = Color.Gray,
++                textAlign = TextAlign.Center
++            )
++            Spacer(modifier = Modifier.height(24.dp))
++            Button(
++                onClick = onRequestPermission,
++                colors = ButtonDefaults.buttonColors(containerColor = MatrixGreen)
++            ) {
++                Text("Grant Permission")
++            }
++        }
++    }
++}
++
+ /**
+  * Individual milestone card component
+  */
+@@ -190,6 +327,7 @@ fun MilestoneCard(
+     progress: MilestoneProgress? = null,
+     processingTime: Long? = null,
++    enabled: Boolean = true,
+     onStart: () -> Unit = {},
+     onViewFrames: () -> Unit = {}
+ ) {
+@@ -200,7 +338,7 @@ fun MilestoneCard(
+                 CardState.COMPLETE -> MatrixGreen
+                 else -> Color.Transparent
+             }, 2.dp),
+-            enabled = state == CardState.READY,
++            enabled = state == CardState.READY && enabled,
+             onClick = { if (state == CardState.READY) onStart() }
+         )
+         .animateContentSize(),

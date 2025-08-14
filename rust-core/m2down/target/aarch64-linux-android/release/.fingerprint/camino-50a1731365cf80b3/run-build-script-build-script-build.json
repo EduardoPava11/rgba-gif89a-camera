@@ -1,0 +1,1 @@
+{"rustc":12610991425282158916,"features":"","declared_features":"","target":0,"profile":0,"path":0,"deps":[[1726265704215209489,"build_script_build",false,2808630096758669980]],"local":[{"RerunIfChanged":{"output":"aarch64-linux-android/release/build/camino-50a1731365cf80b3/output","paths":["build.rs"]}}],"rustflags":[],"config":0,"compile_kind":0}

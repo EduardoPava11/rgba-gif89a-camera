@@ -1,0 +1,443 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  ANDROID_NDK_VERSION: 27.0.12077973
+  GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=2g -XX:+HeapDumpOnOutOfMemoryError"
+  GRADLE_BUILD_ACTION_CACHE_DEBUG_ENABLED: true
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2
+        
+      - name: Validate Gradle wrapper
+        uses: gradle/wrapper-validation-action@v1
+        
+      - name: Run ktlint
+        run: ./gradlew ktlintCheck
+        
+      - name: Run detekt
+        run: ./gradlew detekt
+
+  build-rust:
+    name: Build Rust Components
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+          
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+        
+      - name: Cache Rust dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust-core/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+            
+      - name: Set up Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27
+          add-to-path: true
+          
+      - name: Build m1fast JNI library
+        run: |
+          cd rust-core/m1fast
+          ANDROID_NDK_HOME=$ANDROID_NDK_ROOT cargo ndk \
+            --target aarch64-linux-android \
+            --target armv7-linux-androideabi \
+            --target x86_64-linux-android \
+            --target i686-linux-android \
+            --platform 26 \
+            build --release
+            
+      - name: Upload Rust artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: rust-libs
+          path: |
+            rust-core/target/aarch64-linux-android/release/*.so
+            rust-core/target/armv7-linux-androideabi/release/*.so
+            rust-core/target/x86_64-linux-android/release/*.so
+            rust-core/target/i686-linux-android/release/*.so
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: [validate, build-rust]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2
+        
+      - name: Download Rust libraries
+        uses: actions/download-artifact@v3
+        with:
+          name: rust-libs
+          path: rust-core/target
+          
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest
+        
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: unit-test-results
+          path: app/build/reports/tests/
+
+  instrumented-tests:
+    name: Instrumented Tests
+    runs-on: ubuntu-latest
+    needs: [validate, build-rust]
+    strategy:
+      matrix:
+        api-level: [26, 30, 34]
+        target: [google_apis]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2
+        
+      - name: Download Rust libraries
+        uses: actions/download-artifact@v3
+        with:
+          name: rust-libs
+          path: rust-core/target
+          
+      - name: AVD cache
+        uses: actions/cache@v3
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-${{ matrix.api-level }}-${{ matrix.target }}
+          
+      - name: Create AVD and generate snapshot for caching
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: ${{ matrix.target }}
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: false
+          script: echo "Generated AVD snapshot for caching."
+          
+      - name: Run instrumented tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: ${{ matrix.target }}
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            ./gradlew connectedDebugAndroidTest \
+              -Pandroid.testInstrumentationRunnerArguments.package=com.rgbagif.pipeline \
+              -Pandroid.testInstrumentationRunnerArguments.class=com.rgbagif.performance.JniFastPathBenchmarkTest
+            
+      - name: Upload instrumented test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: instrumented-test-results-${{ matrix.api-level }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+
+  macrobenchmark:
+    name: Macrobenchmark
+    runs-on: ubuntu-latest
+    needs: [validate, build-rust]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2
+        
+      - name: Download Rust libraries
+        uses: actions/download-artifact@v3
+        with:
+          name: rust-libs
+          path: rust-core/target
+          
+      - name: Build release APK for benchmarking
+        run: ./gradlew assembleRelease
+        
+      - name: AVD cache for benchmark
+        uses: actions/cache@v3
+        id: avd-benchmark-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-benchmark-34
+          
+      - name: Create benchmark AVD
+        if: steps.avd-benchmark-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          ram-size: 4096
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: false
+          script: echo "Generated benchmark AVD snapshot."
+          
+      - name: Run Macrobenchmark
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          ram-size: 4096
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            # Install the app
+            adb install app/build/outputs/apk/release/app-release.apk
+            
+            # Run macrobenchmark
+            ./gradlew :macrobenchmark:connectedCheck
+            
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: macrobenchmark-results
+          path: |
+            macrobenchmark/build/outputs/
+            macrobenchmark/build/reports/
+
+  build-apk:
+    name: Build APKs
+    runs-on: ubuntu-latest
+    needs: [validate, build-rust]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2
+        
+      - name: Download Rust libraries
+        uses: actions/download-artifact@v3
+        with:
+          name: rust-libs
+          path: rust-core/target
+          
+      - name: Copy Rust libraries to JNI directories
+        run: |
+          mkdir -p app/src/main/jniLibs/{arm64-v8a,armeabi-v7a,x86_64,x86}
+          cp rust-core/target/aarch64-linux-android/release/libm1fast.so app/src/main/jniLibs/arm64-v8a/
+          cp rust-core/target/armv7-linux-androideabi/release/libm1fast.so app/src/main/jniLibs/armeabi-v7a/
+          cp rust-core/target/x86_64-linux-android/release/libm1fast.so app/src/main/jniLibs/x86_64/
+          cp rust-core/target/i686-linux-android/release/libm1fast.so app/src/main/jniLibs/x86/
+          
+      - name: Build debug APK
+        run: ./gradlew assembleDebug
+        
+      - name: Build release APK
+        run: ./gradlew assembleRelease
+        
+      - name: Upload APKs
+        uses: actions/upload-artifact@v3
+        with:
+          name: apks
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
+
+  perfetto-trace:
+    name: Collect Perfetto Trace
+    runs-on: ubuntu-latest
+    needs: [build-apk]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          
+      - name: Download APKs
+        uses: actions/download-artifact@v3
+        with:
+          name: apks
+          path: apks
+          
+      - name: AVD cache for trace
+        uses: actions/cache@v3
+        id: avd-trace-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-trace-34
+          
+      - name: Create trace AVD
+        if: steps.avd-trace-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          ram-size: 4096
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: false
+          script: echo "Generated trace AVD snapshot."
+          
+      - name: Collect Perfetto trace
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          ram-size: 4096
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            # Install the app
+            adb install apks/debug/app-debug.apk
+            
+            # Start Perfetto trace
+            adb shell perfetto \
+              -c - --txt \
+              -o /data/local/tmp/trace.perfetto \
+              <<EOF
+            buffers: {
+              size_kb: 32768
+              fill_policy: RING_BUFFER
+            }
+            buffers: {
+              size_kb: 4096
+              fill_policy: RING_BUFFER
+            }
+            data_sources: {
+              config {
+                name: "linux.ftrace"
+                ftrace_config {
+                  atrace_apps: "com.rgbagif"
+                  atrace_categories: "view"
+                  atrace_categories: "webview"
+                  atrace_categories: "camera"
+                  atrace_categories: "dalvik"
+                  atrace_categories: "power"
+                }
+              }
+            }
+            data_sources: {
+              config {
+                name: "linux.process_stats"
+              }
+            }
+            duration_ms: 30000
+            EOF &
+            
+            PERFETTO_PID=$!
+            sleep 2
+            
+            # Launch app and run capture workflow
+            adb shell am start -n com.rgbagif/.MainActivity
+            sleep 3
+            
+            # Simulate capture workflow
+            adb shell input tap 540 1200  # START button
+            sleep 10
+            adb shell input tap 540 1200  # STOP button
+            sleep 5
+            
+            # Wait for trace to complete
+            wait $PERFETTO_PID
+            
+            # Pull trace file
+            adb pull /data/local/tmp/trace.perfetto
+            
+      - name: Upload Perfetto trace
+        uses: actions/upload-artifact@v3
+        with:
+          name: perfetto-trace
+          path: trace.perfetto
+
+  publish-results:
+    name: Publish Test Results
+    runs-on: ubuntu-latest
+    needs: [unit-tests, instrumented-tests, macrobenchmark]
+    if: always()
+    steps:
+      - name: Download all test results
+        uses: actions/download-artifact@v3
+        
+      - name: Publish test results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always()
+        with:
+          files: |
+            **/test-results/**/*.xml
+            **/androidTest-results/**/*.xml
+          check_name: Test Results
+          comment_title: Test Results

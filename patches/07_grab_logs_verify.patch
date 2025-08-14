@@ -1,0 +1,37 @@
+--- a/scripts/grab_logs.sh
++++ b/scripts/grab_logs.sh
+@@ -75,6 +75,33 @@ echo "M2 (Downsize):   $(grep -c '"milestone":"M2"' full_test.log) entries"
+ echo "M3 (GIF):   $(grep -c '"milestone":"M3"' full_test.log) entries"
+ echo ""
+ 
++# Verify CBOR and PNG files created
++echo "=== File Verification ==="
++
++# Get latest session directory
++SESSION_DIR=$(adb -s "$DEVICE" shell 'ls -1t /sdcard/Android/data/com.rgbagif.debug/files/captured_frames/ 2>/dev/null | head -1' | tr -d '\r')
++
++if [ ! -z "$SESSION_DIR" ]; then
++    echo "Session: $SESSION_DIR"
++    
++    # Count CBOR files
++    CBOR_COUNT=$(adb -s "$DEVICE" shell "ls /sdcard/Android/data/com.rgbagif.debug/files/captured_frames/$SESSION_DIR/cbor/*.cbor 2>/dev/null | wc -l" | tr -d '\r\n ')
++    echo "CBOR files: $CBOR_COUNT / 81 expected"
++    
++    # Count PNG files  
++    PNG_COUNT=$(adb -s "$DEVICE" shell "ls /sdcard/Android/data/com.rgbagif.debug/files/captured_frames/$SESSION_DIR/png/*.png 2>/dev/null | wc -l" | tr -d '\r\n ')
++    echo "PNG files: $PNG_COUNT / 81 expected"
++    
++    # Verify counts
++    if [ "$CBOR_COUNT" -ge "81" ]; then
++        echo "✅ M1 CBOR capture complete"
++    else
++        echo "⚠️  M1 CBOR count low: $CBOR_COUNT"
++    fi
++else
++    echo "⚠️  No session directory found"
++fi
++echo ""
++
+ echo "Logs saved to: m1.log, m2.log, m3.log"
+ echo "Full log: full_test.log"
+ echo ""

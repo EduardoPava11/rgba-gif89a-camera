@@ -1,0 +1,57 @@
+[package]
+name = "gifpipe"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+name = "gifpipe"
+
+[dependencies]
+# UniFFI for Android binding
+uniffi = { version = "0.28", features = ["build", "cli"] }
+
+# Burn for neural downsizer
+burn = { version = "0.15", features = ["train", "wgpu", "ndarray", "std"] }
+burn-ndarray = "0.15"
+
+# Image processing
+image = "0.25"
+gif = "0.13"
+palette = "0.7"
+rgb = "0.8"
+
+# Color space conversions
+lab = "0.11"
+oklab = "1.0"
+
+# Performance and utilities
+rayon = "1.10"
+ndarray = "0.16"
+anyhow = "1.0"
+thiserror = "2.0"
+log = "0.4"
+android_logger = "0.14"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bincode = "1.3"
+ciborium = "0.2"
+serde_bytes = "0.11"
+
+[build-dependencies]
+uniffi = { version = "0.28", features = ["build"] }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

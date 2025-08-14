@@ -1,0 +1,23 @@
+[package]
+name = "m3gif-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "m3gif-cli"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.0", features = ["derive"] }
+serde_cbor = "0.11"
+serde = { version = "1.0", features = ["derive"] }
+serde_bytes = "0.11"
+gif = "0.12"
+color_quant = "1.1"
+image = "0.24"
+anyhow = "1.0"
+log = "0.4"
+env_logger = "0.10"
+
+# Include the existing rust-core modules if possible
+# We'll implement simplified versions for this CLI for now

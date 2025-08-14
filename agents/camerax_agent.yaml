@@ -1,0 +1,229 @@
+name: camerax_agent
+version: "1.0"
+type: specialist
+domain: android_camera_capture
+
+system_prompt: |
+  You are a CameraX specialist focused on RGBA_8888 capture, stride handling, and CBOR packaging.
+  Your responsibilities:
+  - Configure CameraX for optimal 729×729 square capture with RGBA_8888 format
+  - Handle ImageProxy stride considerations and buffer copying
+  - Package frames as CBOR with proper metadata for debugging/replay
+  - Implement backpressure handling with bounded queues
+  - Ensure WYSIWYG preview matching captured frame geometry
+  
+  Key technical constraints:
+  - Target resolution: 729×729 (square aspect ratio)
+  - Format: RGBA_8888 with alpha channel for neural network input
+  - Frame rate: 24fps capture cadence
+  - Queue depth: Max 2 frames in flight to prevent OOM
+  - CBOR fields: width, height, format, rgba_data, timestamp_ms, device_info
+  - Preview transform: Exact match between preview and capture region
+
+tools:
+  - name: read_file
+    paths:
+      - "app/src/main/java/com/rgbagif/camera/**/*.kt"
+      - "app/src/main/java/com/rgbagif/MainViewModel.kt"
+      - "app/src/main/AndroidManifest.xml"
+      - "app/build.gradle.kts"
+  - name: edit_file
+    paths:
+      - "app/src/main/java/com/rgbagif/camera/CameraXManager.kt"
+      - "app/src/main/java/com/rgbagif/camera/CaptureGeometry.kt"
+      - "app/src/main/java/com/rgbagif/camera/Milestone1Config.kt"
+      - "agents/camerax_agent.yaml"
+  - name: run_command
+    commands:
+      - "./gradlew :app:assembleDebug"
+      - "adb install -r app/build/outputs/apk/debug/app-debug.apk"
+      - "adb shell logcat | grep CameraXManager"
+      - "adb shell dumpsys media.camera"
+      - "./gradlew :app:testDebugUnitTest"
+  - name: analyze_camera_config
+    description: "Inspect camera capabilities and supported formats"
+
+responsibilities:
+  primary:
+    - "Configure CameraX ImageAnalysis for RGBA_8888 output"
+    - "Handle rowStride padding in ImageProxy buffer copying"
+    - "Implement proper preview-to-capture coordinate transforms"
+    - "Package frames as CBOR with metadata for replay/debugging"
+    - "Manage frame queue depth and backpressure"
+  
+  quality_gates:
+    - "Stable 24fps capture without frame drops"
+    - "Zero memory leaks during extended capture sessions"
+    - "WYSIWYG preview: <5px difference from capture region"
+    - "CBOR packaging overhead <2ms per frame"
+
+mcp:
+  version: 1
+  references:
+    - "https://docs.anthropic.com/en/docs/claude-code/sub-agents"
+    - "https://developer.android.com/training/camerax"
+  model: "claude-3.7-sonnet"
+  context_size: 200000
+  allow_chain_of_thought: true
+  tool_limits:
+    run_command:
+      timeout_ms: 120000
+      allow_network: false
+    edit_file:
+      max_edits_per_run: 6
+    read_file:
+      max_bytes: 524288
+  env:
+    ANDROID_HOME: "$ANDROID_HOME"
+    ANDROID_NDK_HOME: "$ANDROID_NDK_HOME"
+
+interfaces:
+  input:
+    - camera_config: "CameraConfig (resolution, fps, format)"
+    - preview_view: "PreviewView for display"
+    - lifecycle_owner: "LifecycleOwner for CameraX binding"
+    - frame_callback: "(ByteArray, Int, Int, Long) -> Unit"
+  
+  output:
+    - rgba_frames: "ByteArray (729×729×4 RGBA_8888)"
+    - cbor_packages: "ByteArray (serialized frame + metadata)"
+    - capture_stats: "CaptureStats (fps, drops, errors)"
+    - preview_state: "PreviewState (LIVE, FROZEN, ERROR)"
+
+contracts:
+  invariants:
+    - "All frames must be exactly 729×729 pixels in RGBA_8888 format."
+    - "Frame buffer size = 729 × 729 × 4 = 2,125,764 bytes exactly."
+    - "Queue depth never exceeds 2 frames to prevent OOM."
+    - "Preview geometry matches capture region within 5px tolerance."
+  preconditions:
+    - "Camera permission granted before CameraX initialization."
+    - "Device supports RGBA_8888 output format for ImageAnalysis."
+    - "Target resolution 729×729 available or closest fallback selected."
+  postconditions:
+    - "Capture maintains stable 24fps without sustained frame drops."
+    - "All ImageProxy instances properly closed to prevent resource leaks."
+    - "CBOR packages include complete metadata for replay."
+
+code_templates:
+  camerax_rgba_config: |
+    private fun bindCameraUseCases(lifecycleOwner: LifecycleOwner) {
+        val imageAnalysis = ImageAnalysis.Builder()
+            .setTargetResolution(Size(729, 729))
+            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .setImageQueueDepth(2) // Critical: prevent OOM
+            .build()
+            
+        imageAnalysis.setAnalyzer(analysisExecutor) { imageProxy ->
+            processRgbaFrame(imageProxy)
+        }
+    }
+  
+  stride_safe_copying: |
+    private fun extractRgbaData(imageProxy: ImageProxy): ByteArray {
+        val plane = imageProxy.planes[0]
+        val width = imageProxy.width
+        val height = imageProxy.height
+        val rowStride = plane.rowStride
+        val pixelStride = plane.pixelStride
+        
+        val buffer = plane.buffer
+        val rgba = ByteArray(width * height * 4)
+        
+        if (rowStride == width * pixelStride) {
+            // No padding, direct copy
+            buffer.get(rgba)
+        } else {
+            // Handle row padding
+            val rowData = ByteArray(rowStride)
+            for (row in 0 until height) {
+                buffer.get(rowData)
+                System.arraycopy(rowData, 0, rgba, row * width * 4, width * 4)
+            }
+        }
+        
+        return rgba
+    }
+  
+  cbor_packaging: |
+    data class FrameCBOR(
+        val width: UInt,
+        val height: UInt, 
+        val format: String,
+        val rgba_data: ByteArray,
+        val timestamp_ms: ULong,
+        val device_info: String?
+    )
+    
+    private fun packageToCBOR(
+        rgbaData: ByteArray, 
+        width: Int, 
+        height: Int, 
+        timestamp: Long
+    ): ByteArray {
+        val frame = FrameCBOR(
+            width = width.toUInt(),
+            height = height.toUInt(),
+            format = "RGBA_8888",
+            rgba_data = rgbaData,
+            timestamp_ms = timestamp.toULong(),
+            device_info = "${Build.MODEL}_${Build.VERSION.SDK_INT}"
+        )
+        return Cbor.encodeToByteArray(frame)
+    }
+
+runbooks:
+  camera_capability_check:
+    steps:
+      - "Query camera characteristics for supported resolutions."
+      - "Verify RGBA_8888 format available for ImageAnalysis."
+      - "Select 729×729 or closest available square resolution."
+      - "Log selected configuration and any fallbacks."
+  frame_rate_validation:
+    steps:
+      - "Capture 100 frames and measure actual vs target FPS."
+      - "Check for sustained frame drops or irregular timing."
+      - "Assert stable 24fps ±2fps over 10-second capture."
+  memory_leak_detection:
+    steps:
+      - "Run 5-minute capture session with memory profiler."
+      - "Ensure all ImageProxy.close() calls executed."
+      - "Assert no sustained memory growth >10MB."
+
+acceptance_tests:
+  - test_name: "rgba_format_validation"
+    expected: "All frames exactly 729×729×4 bytes"
+    assertion: "Buffer size == 2,125,764 bytes"
+  
+  - test_name: "stride_handling"
+    input: "Various device cameras with different stride patterns"
+    expected: "Correct pixel data regardless of rowStride padding"
+  
+  - test_name: "queue_backpressure"
+    scenario: "Slow downstream processing"
+    assertion: "Max 2 frames queued, oldest dropped gracefully"
+  
+  - test_name: "preview_accuracy"
+    measurement: "Preview vs capture region alignment"
+    assertion: "Geometric difference <5px RMSE"
+  
+  - test_name: "cbor_roundtrip"
+    input: "Captured RGBA frame"
+    expected: "CBOR encode→decode preserves all data"
+  
+  - test_name: "sustained_capture"
+    duration: "300 seconds (7,200 frames at 24fps)"
+    assertion: "No memory leaks, stable FPS, <1% frame drops"
+  
+  - test_name: "device_compatibility"
+    devices: ["Pixel 6", "Galaxy S22", "OnePlus 10"]
+    assertion: "Consistent RGBA capture across Android devices"
+
+device_profiles:
+  snapdragon_8_gen_2:
+    cpu: "Kryo Prime 1×3.2GHz + Gold + Silver"
+    ram_gb: 8
+    os: "Android 14"
+    camera_hw: "Triple camera with hardware-accelerated ISP"
+    notes: "Primary test device for CameraX validation"
