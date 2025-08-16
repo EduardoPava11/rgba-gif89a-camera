@@ -5,6 +5,9 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- API 34+: -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     
     <uses-feature android:name="android.hardware.camera" android:required="true" />
     <uses-feature android:name="android.hardware.camera.any" android:required="true" />
@@ -28,6 +31,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        
+        <!-- GIF Capture Service with camera foreground type -->
+        <service
+            android:name=".services.GifCaptureService"
+            android:exported="false"
+            android:foregroundServiceType="camera" />
         
         <!-- WorkManager's default configuration will be used -->
         <!-- Service for WorkManager with foreground service type -->

@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_basic_pipeline() {
-        let session_id = initialize_logging();
+        let session_id = init_android_tracing();
         assert!(!session_id.is_empty());
         
         let test_cube = create_test_cube();

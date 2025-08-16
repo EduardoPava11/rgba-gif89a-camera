@@ -4,7 +4,7 @@ members = [
     "crates/common-types",
     "crates/m2-quant",
     "crates/m3-gif",
-    "crates/ffi",
+    # "crates/ffi",  # DISABLED: Using m3gif instead per user instruction
     
     # Bevy cube viewer (Phase 2)
     "cube_viewer_bevy",
@@ -16,12 +16,13 @@ members = [
     "m3gif-core",
     "m2down",
     "m1fast",
-    "m3gif",
+    "m3gif",  # PRIMARY FFI: This is what the app uses
 ]
 
 # Exclude old FFI implementation that conflicts with new modular FFI
 exclude = [
-    "gifpipe-ffi"  # Superseded by crates/ffi with structured logging
+    "gifpipe-ffi",  # Superseded by crates/ffi with structured logging
+    "crates/ffi",   # EXCLUDED: Using m3gif instead per user instruction
 ]
 
 resolver = "2"
@@ -36,7 +37,7 @@ authors = ["Daniel"]
 common-types = { path = "./crates/common-types" }
 m2-quant = { path = "./crates/m2-quant" }
 m3-gif = { path = "./crates/m3-gif" }
-ffi = { path = "./crates/ffi" }
+# ffi = { path = "./crates/ffi" }  # DISABLED: Using m3gif instead
 
 # Tracing and structured logging
 tracing = "0.1"

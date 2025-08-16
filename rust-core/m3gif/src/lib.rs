@@ -6,6 +6,19 @@ use std::io::Write;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use thiserror::Error;
 
+// Add the new module
+mod m2m3_bridge;
+
+// Re-export the new types and functions for UniFFI
+pub use m2m3_bridge::{
+    QuantizedCubeData,
+    GifInfo,
+    GifValidation,
+    m2_quantize_for_cube,
+    m3_write_gif_from_cube,
+    validate_gif_bytes,
+};
+
 /// GIF creation errors
 #[derive(Debug, Error)]
 pub enum GifError {
@@ -69,18 +82,11 @@ pub fn quantize_rgba_to_lct(
     
     match method {
         QuantizationMethod::NeuQuant { colors, sample_fac } => {
-            // NeuQuant expects RGB data (no alpha)
-            let mut rgb_data = Vec::with_capacity(pixel_count * 3);
-            for i in 0..pixel_count {
-                let idx = i * 4;
-                rgb_data.push(rgba[idx]);     // R
-                rgb_data.push(rgba[idx + 1]); // G
-                rgb_data.push(rgba[idx + 2]); // B
-                // Skip alpha (idx + 3)
-            }
+            // NeuQuant expects RGBA data (4 bytes per pixel) 
+            // We already have RGBA, so use it directly
             
             // Run NeuQuant quantization
-            let nq = NeuQuant::new(sample_fac as i32, colors as usize, &rgb_data);
+            let nq = NeuQuant::new(sample_fac as i32, colors as usize, rgba);
             
             // Get the palette (RGB format)
             let palette = nq.color_map_rgb();
@@ -94,15 +100,16 @@ pub fn quantize_rgba_to_lct(
             for y in 0..height as usize {
                 for x in 0..width as usize {
                     let i = y * width as usize + x;
-                    let idx = i * 3;
+                    let idx = i * 4;  // RGBA data, 4 bytes per pixel
                     
                     // Apply accumulated error
-                    let r = (rgb_data[idx] as i32 + error_r[i]).clamp(0, 255) as u8;
-                    let g = (rgb_data[idx + 1] as i32 + error_g[i]).clamp(0, 255) as u8;
-                    let b = (rgb_data[idx + 2] as i32 + error_b[i]).clamp(0, 255) as u8;
+                    let r = (rgba[idx] as i32 + error_r[i]).clamp(0, 255) as u8;
+                    let g = (rgba[idx + 1] as i32 + error_g[i]).clamp(0, 255) as u8;
+                    let b = (rgba[idx + 2] as i32 + error_b[i]).clamp(0, 255) as u8;
                     
                     // Find nearest palette color
-                    let index = nq.index_of(&[r, g, b]) as u8;
+                    // NeuQuant's index_of expects RGBA (4 bytes)
+                    let index = nq.index_of(&[r, g, b, 255]) as u8;
                     indices.push(index);
                     
                     // Calculate quantization error
@@ -585,6 +592,20 @@ fn inner_save_gif_to_file(
         return Err(GifError::InvalidFrameCount(0));
     }
     
+    // Debug log frame sizes
+    for (i, frame) in frames_rgba.iter().enumerate() {
+        if i < 3 {
+            log::debug!("M3GIF: Frame {} size: {} bytes (expected {})", 
+                i, frame.len(), (width as usize) * (height as usize) * 4);
+        }
+        if frame.len() != (width as usize) * (height as usize) * 4 {
+            return Err(GifError::InvalidDimensions(
+                format!("Frame {} has {} bytes, expected {}", 
+                    i, frame.len(), (width as usize) * (height as usize) * 4)
+            ));
+        }
+    }
+    
     // Create parent directory if it doesn't exist
     if let Some(parent) = std::path::Path::new(&output_path).parent() {
         log::debug!("M3GIF: Creating directory: {:?}", parent);
@@ -592,50 +613,44 @@ fn inner_save_gif_to_file(
             .map_err(|e| GifError::IoError(format!("Failed to create directory: {}", e)))?;
     }
     
-    let _method = QuantizationMethod::NeuQuant {
+    let method = QuantizationMethod::NeuQuant {
         colors: 256,
         sample_fac: 10,
     };
     
     log::debug!("M3GIF: Starting GIF encoding with NeuQuant");
     
-    // TEMPORARY: Use simple GIF creation to bypass complex quantization
-    let mut output = Vec::new();
-    let mut encoder = Encoder::new(&mut output, width, height, &[])
-        .map_err(|e| GifError::EncodingError(format!("Encoder creation failed: {}", e)))?;
+    // Use the proper encode_gif89a_rgba function
+    let output = encode_gif89a_rgba(
+        &frames_rgba,
+        width,
+        height,
+        delay_cs,
+        true, // loop_forever
+        method,
+    )?;
     
-    encoder.set_repeat(Repeat::Infinite)
-        .map_err(|e| GifError::EncodingError(format!("Set repeat failed: {}", e)))?;
-    
-    // Create simple test frame
-    let palette = vec![0, 0, 0, 255, 255, 255]; // Black and white
-    let indices = vec![0u8; (width as usize) * (height as usize)];
-    
-    let mut frame = Frame::default();
-    frame.width = width;
-    frame.height = height;
-    frame.buffer = Cow::Borrowed(&indices);
-    frame.palette = Some(palette);
-    frame.delay = delay_cs;
-    
-    encoder.write_frame(&frame)
-        .map_err(|e| GifError::EncodingError(format!("Write frame failed: {}", e)))?;
-    
-    drop(encoder);
-    let gif_data = output;
-    
-    // Write to file
+    // Write the encoded GIF data to file
     let mut file = File::create(&output_path)
         .map_err(|e| GifError::IoError(format!("Failed to create file {}: {}", output_path, e)))?;
     
-    file.write_all(&gif_data)
+    file.write_all(&output)
         .map_err(|e| GifError::IoError(e.to_string()))?;
     
+    // Calculate compression ratio
+    let raw_size = frames_rgba.len() * width as usize * height as usize * 4;
+    let compressed_size = output.len();
+    let compression_ratio = if compressed_size > 0 {
+        raw_size as f32 / compressed_size as f32
+    } else {
+        1.0
+    };
+    
     let stats = GifStats {
-        frames: 1, // Test with single frame for now
-        size_bytes: gif_data.len() as u64,
-        palettes: vec![2], // 2 colors in test palette
-        compression_ratio: 1.0,
+        frames: frames_rgba.len() as u16,
+        size_bytes: output.len() as u64,
+        palettes: vec![256], // NeuQuant uses 256 colors
+        compression_ratio,
     };
     
     log::info!("GIF saved: {} bytes", stats.size_bytes);

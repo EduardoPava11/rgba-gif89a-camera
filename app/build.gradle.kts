@@ -169,14 +169,14 @@ tasks.register<Exec>("buildM3GifRust") {
         file("${project.projectDir}/src/main/jniLibs/x86").mkdirs()
     }
     
-    // Build for Android architectures - now produces libm3gif.so directly
+    // Build for Android architectures - build only m3gif package
     commandLine(
         "sh", "-c",
         """
-        cargo ndk -t arm64-v8a -o ${project.projectDir}/src/main/jniLibs build --release &&
-        cargo ndk -t armeabi-v7a -o ${project.projectDir}/src/main/jniLibs build --release &&
-        cargo ndk -t x86_64 -o ${project.projectDir}/src/main/jniLibs build --release &&
-        cargo ndk -t x86 -o ${project.projectDir}/src/main/jniLibs build --release
+        cargo ndk -t arm64-v8a -o ${project.projectDir}/src/main/jniLibs build --release -p m3gif &&
+        cargo ndk -t armeabi-v7a -o ${project.projectDir}/src/main/jniLibs build --release -p m3gif &&
+        cargo ndk -t x86_64 -o ${project.projectDir}/src/main/jniLibs build --release -p m3gif &&
+        cargo ndk -t x86 -o ${project.projectDir}/src/main/jniLibs build --release -p m3gif
         """.trimIndent()
     )
     
@@ -259,15 +259,14 @@ tasks.register<Exec>("generateM3UniFFIBindings") {
         }
     }
     
-    // Use UDL file directly (more reliable than library path detection)
+    // Use uniffi-bindgen directly on m3gif UDL
     commandLine(
-        "cargo", "run", "--features=uniffi/cli", "--bin", "uniffi-bindgen",
-        "generate", "src/gifpipe.udl",
+        "uniffi-bindgen", "generate",
+        "m3gif/src/m3gif.udl",
         "--language", "kotlin", "--out-dir", outDir.absolutePath
     )
     
-    inputs.file("${rootDir}/rust-core/src/gifpipe.udl")
-    inputs.file("${rootDir}/rust-core/uniffi.toml")
+    inputs.file("${rootDir}/rust-core/m3gif/src/m3gif.udl")
     outputs.dir("${outDir}/uniffi/m3gif")
     
     doLast {

@@ -1,4 +1,6 @@
 namespace m3gif {
+    // ==== EXISTING FUNCTIONS (for compatibility) ====
+    
     // Main entry point for creating GIF from RGBA frames
     [Throws=GifError]
     GifStats m3_create_gif89a_rgba(
@@ -24,7 +26,31 @@ namespace m3gif {
     bytes m2_downsize_rgba_729_to_81(
         bytes rgba_729
     );
+    
+    // ==== NEW M2/M3 SEPARATION FUNCTIONS ====
+    
+    // M2: Quantize RGBA frames to create palette and indexed cube data
+    [Throws=GifError]
+    QuantizedCubeData m2_quantize_for_cube(
+        sequence<sequence<u8>> frames_81_rgba
+    );
+    
+    // M3: Write GIF from pre-quantized cube data
+    [Throws=GifError]
+    GifInfo m3_write_gif_from_cube(
+        QuantizedCubeData cube,
+        u8 fps_cs,
+        boolean loop_forever
+    );
+    
+    // Validate GIF bytes
+    [Throws=GifError]
+    GifValidation validate_gif_bytes(
+        bytes gif_bytes
+    );
 };
+
+// ==== ERROR TYPES ====
 
 [Error]
 enum GifError {
@@ -35,9 +61,47 @@ enum GifError {
     "IoError",
 };
 
+// ==== DATA TYPES ====
+
 dictionary GifStats {
     u16 frames;
     u64 size_bytes;
     sequence<u16> palettes;
     f32 compression_ratio;
+};
+
+// Quantized cube data for WYSIWYG preview and GIF encoding
+dictionary QuantizedCubeData {
+    u16 width;
+    u16 height;
+    sequence<u8> global_palette_rgb;      // 256*3 RGB bytes
+    sequence<sequence<u8>> indexed_frames; // 81 frames of 81*81 indices
+    sequence<u8> delays_cs;                // 81 centiseconds per frame
+    f32 palette_stability;
+    f32 mean_delta_e;
+    f32 p95_delta_e;
+};
+
+// GIF metadata and validation results
+dictionary GifInfo {
+    string file_path;
+    u64 file_size_bytes;
+    u32 frame_count;
+    u32 palette_size;
+    boolean has_netscape_loop;
+    f32 compression_ratio;
+    boolean validation_passed;
+    u64 processing_time_ms;
+    u64 total_processing_ms;
+    sequence<u8> gif_data;
+};
+
+// GIF validation results
+dictionary GifValidation {
+    boolean is_valid;
+    boolean has_gif89a_header;
+    boolean has_netscape_loop;
+    boolean has_trailer;
+    u32 frame_count;
+    sequence<string> errors;
 };

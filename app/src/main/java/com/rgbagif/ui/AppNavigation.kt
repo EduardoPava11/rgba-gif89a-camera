@@ -3,7 +3,7 @@ package com.rgbagif.ui
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.ImageBitmap
 import com.rgbagif.camera.CameraXManager
-import com.rgbagif.m1.M1VerificationScreen
+// import com.rgbagif.m1.M1VerificationScreen // Temporarily disabled
 import com.rgbagif.ui.browser.FrameBrowserScreen
 import com.rgbagif.milestones.MilestoneWorkflowScreen
 import com.rgbagif.utils.GifFrameExtractor
@@ -26,21 +26,10 @@ fun AppNavigation(
     
     when (currentScreen) {
         Screen.TECHNICAL_PIPELINE -> {
-            TechnicalPipelineScreen(
+            // TechnicalPipelineScreen temporarily disabled
+            SimpleGifScreen(
                 cameraManager = cameraManager,
-                exportManager = exportManager,
-                onViewCube = { file ->
-                    gifFile = file
-                    // Load quantized frames or use placeholders for demo
-                    scope.launch {
-                        quantizedFrames = GifFrameExtractor.extractFrames(file)
-                        if (quantizedFrames.isEmpty()) {
-                            // Use placeholder frames for demonstration
-                            quantizedFrames = GifFrameExtractor.createPlaceholderFrames()
-                        }
-                        currentScreen = Screen.CUBE_VISUALIZATION
-                    }
-                }
+                exportManager = exportManager
             )
         }
         Screen.SIMPLE_GIF -> {
@@ -50,10 +39,10 @@ fun AppNavigation(
             )
         }
         Screen.M1_VERIFICATION -> {
-            M1VerificationScreen(
-                onNavigateBack = {
-                    currentScreen = Screen.MILESTONE_WORKFLOW
-                }
+            // M1VerificationScreen temporarily disabled
+            SimpleGifScreen(
+                cameraManager = cameraManager,
+                exportManager = exportManager
             )
         }
         Screen.MILESTONE_WORKFLOW -> {
@@ -92,12 +81,10 @@ fun AppNavigation(
             )
         }
         Screen.CUBE_VISUALIZATION -> {
-            CubeVisualizationScreen(
-                quantizedFrames = quantizedFrames,
-                gifFile = gifFile,
-                onBack = {
-                    currentScreen = Screen.TECHNICAL_PIPELINE
-                }
+            // CubeVisualizationScreen temporarily disabled
+            SimpleGifScreen(
+                cameraManager = cameraManager,
+                exportManager = exportManager
             )
         }
     }

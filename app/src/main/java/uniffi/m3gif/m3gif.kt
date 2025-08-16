@@ -696,6 +696,12 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -713,9 +719,15 @@ internal interface UniffiLib : Library {
 
     fun uniffi_m3gif_fn_func_m2_downsize_rgba_729_to_81(`rgba729`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_m3gif_fn_func_m2_quantize_for_cube(`frames81Rgba`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_m3gif_fn_func_m3_create_gif89a_rgba(`framesRgba`: RustBuffer.ByValue,`width`: Short,`height`: Short,`delayCs`: Short,`loopForever`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_m3gif_fn_func_m3_save_gif_to_file(`framesRgba`: RustBuffer.ByValue,`width`: Short,`height`: Short,`delayCs`: Short,`outputPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_m3gif_fn_func_m3_write_gif_from_cube(`cube`: RustBuffer.ByValue,`fpsCs`: Byte,`loopForever`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_m3gif_fn_func_validate_gif_bytes(`gifBytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun ffi_m3gif_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -831,9 +843,15 @@ internal interface UniffiLib : Library {
     ): Unit
     fun uniffi_m3gif_checksum_func_m2_downsize_rgba_729_to_81(
     ): Short
+    fun uniffi_m3gif_checksum_func_m2_quantize_for_cube(
+    ): Short
     fun uniffi_m3gif_checksum_func_m3_create_gif89a_rgba(
     ): Short
     fun uniffi_m3gif_checksum_func_m3_save_gif_to_file(
+    ): Short
+    fun uniffi_m3gif_checksum_func_m3_write_gif_from_cube(
+    ): Short
+    fun uniffi_m3gif_checksum_func_validate_gif_bytes(
     ): Short
     fun ffi_m3gif_uniffi_contract_version(
     ): Int
@@ -855,10 +873,19 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_m3gif_checksum_func_m2_downsize_rgba_729_to_81() != 18380.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_m3gif_checksum_func_m2_quantize_for_cube() != 55965.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_m3gif_checksum_func_m3_create_gif89a_rgba() != 44077.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_m3gif_checksum_func_m3_save_gif_to_file() != 40356.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_m3gif_checksum_func_m3_write_gif_from_cube() != 58349.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_m3gif_checksum_func_validate_gif_bytes() != 18401.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -938,6 +965,26 @@ public object FfiConverterUShort: FfiConverter<UShort, Short> {
 
     override fun write(value: UShort, buf: ByteBuffer) {
         buf.putShort(value.toShort())
+    }
+}
+
+public object FfiConverterUInt: FfiConverter<UInt, Int> {
+    override fun lift(value: Int): UInt {
+        return value.toUInt()
+    }
+
+    override fun read(buf: ByteBuffer): UInt {
+        return lift(buf.getInt())
+    }
+
+    override fun lower(value: UInt): Int {
+        return value.toInt()
+    }
+
+    override fun allocationSize(value: UInt) = 4UL
+
+    override fun write(value: UInt, buf: ByteBuffer) {
+        buf.putInt(value.toInt())
     }
 }
 
@@ -1073,6 +1120,67 @@ public object FfiConverterByteArray: FfiConverterRustBuffer<ByteArray> {
 
 
 
+data class GifInfo (
+    var `filePath`: kotlin.String, 
+    var `fileSizeBytes`: kotlin.ULong, 
+    var `frameCount`: kotlin.UInt, 
+    var `paletteSize`: kotlin.UInt, 
+    var `hasNetscapeLoop`: kotlin.Boolean, 
+    var `compressionRatio`: kotlin.Float, 
+    var `validationPassed`: kotlin.Boolean, 
+    var `processingTimeMs`: kotlin.ULong, 
+    var `totalProcessingMs`: kotlin.ULong, 
+    var `gifData`: List<kotlin.UByte>
+) {
+    
+    companion object
+}
+
+public object FfiConverterTypeGifInfo: FfiConverterRustBuffer<GifInfo> {
+    override fun read(buf: ByteBuffer): GifInfo {
+        return GifInfo(
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterSequenceUByte.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: GifInfo) = (
+            FfiConverterString.allocationSize(value.`filePath`) +
+            FfiConverterULong.allocationSize(value.`fileSizeBytes`) +
+            FfiConverterUInt.allocationSize(value.`frameCount`) +
+            FfiConverterUInt.allocationSize(value.`paletteSize`) +
+            FfiConverterBoolean.allocationSize(value.`hasNetscapeLoop`) +
+            FfiConverterFloat.allocationSize(value.`compressionRatio`) +
+            FfiConverterBoolean.allocationSize(value.`validationPassed`) +
+            FfiConverterULong.allocationSize(value.`processingTimeMs`) +
+            FfiConverterULong.allocationSize(value.`totalProcessingMs`) +
+            FfiConverterSequenceUByte.allocationSize(value.`gifData`)
+    )
+
+    override fun write(value: GifInfo, buf: ByteBuffer) {
+            FfiConverterString.write(value.`filePath`, buf)
+            FfiConverterULong.write(value.`fileSizeBytes`, buf)
+            FfiConverterUInt.write(value.`frameCount`, buf)
+            FfiConverterUInt.write(value.`paletteSize`, buf)
+            FfiConverterBoolean.write(value.`hasNetscapeLoop`, buf)
+            FfiConverterFloat.write(value.`compressionRatio`, buf)
+            FfiConverterBoolean.write(value.`validationPassed`, buf)
+            FfiConverterULong.write(value.`processingTimeMs`, buf)
+            FfiConverterULong.write(value.`totalProcessingMs`, buf)
+            FfiConverterSequenceUByte.write(value.`gifData`, buf)
+    }
+}
+
+
+
 data class GifStats (
     var `frames`: kotlin.UShort, 
     var `sizeBytes`: kotlin.ULong, 
@@ -1105,6 +1213,104 @@ public object FfiConverterTypeGifStats: FfiConverterRustBuffer<GifStats> {
             FfiConverterULong.write(value.`sizeBytes`, buf)
             FfiConverterSequenceUShort.write(value.`palettes`, buf)
             FfiConverterFloat.write(value.`compressionRatio`, buf)
+    }
+}
+
+
+
+data class GifValidation (
+    var `isValid`: kotlin.Boolean, 
+    var `hasGif89aHeader`: kotlin.Boolean, 
+    var `hasNetscapeLoop`: kotlin.Boolean, 
+    var `hasTrailer`: kotlin.Boolean, 
+    var `frameCount`: kotlin.UInt, 
+    var `errors`: List<kotlin.String>
+) {
+    
+    companion object
+}
+
+public object FfiConverterTypeGifValidation: FfiConverterRustBuffer<GifValidation> {
+    override fun read(buf: ByteBuffer): GifValidation {
+        return GifValidation(
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterSequenceString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: GifValidation) = (
+            FfiConverterBoolean.allocationSize(value.`isValid`) +
+            FfiConverterBoolean.allocationSize(value.`hasGif89aHeader`) +
+            FfiConverterBoolean.allocationSize(value.`hasNetscapeLoop`) +
+            FfiConverterBoolean.allocationSize(value.`hasTrailer`) +
+            FfiConverterUInt.allocationSize(value.`frameCount`) +
+            FfiConverterSequenceString.allocationSize(value.`errors`)
+    )
+
+    override fun write(value: GifValidation, buf: ByteBuffer) {
+            FfiConverterBoolean.write(value.`isValid`, buf)
+            FfiConverterBoolean.write(value.`hasGif89aHeader`, buf)
+            FfiConverterBoolean.write(value.`hasNetscapeLoop`, buf)
+            FfiConverterBoolean.write(value.`hasTrailer`, buf)
+            FfiConverterUInt.write(value.`frameCount`, buf)
+            FfiConverterSequenceString.write(value.`errors`, buf)
+    }
+}
+
+
+
+data class QuantizedCubeData (
+    var `width`: kotlin.UShort, 
+    var `height`: kotlin.UShort, 
+    var `globalPaletteRgb`: List<kotlin.UByte>, 
+    var `indexedFrames`: List<List<kotlin.UByte>>, 
+    var `delaysCs`: List<kotlin.UByte>, 
+    var `paletteStability`: kotlin.Float, 
+    var `meanDeltaE`: kotlin.Float, 
+    var `p95DeltaE`: kotlin.Float
+) {
+    
+    companion object
+}
+
+public object FfiConverterTypeQuantizedCubeData: FfiConverterRustBuffer<QuantizedCubeData> {
+    override fun read(buf: ByteBuffer): QuantizedCubeData {
+        return QuantizedCubeData(
+            FfiConverterUShort.read(buf),
+            FfiConverterUShort.read(buf),
+            FfiConverterSequenceUByte.read(buf),
+            FfiConverterSequenceSequenceUByte.read(buf),
+            FfiConverterSequenceUByte.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: QuantizedCubeData) = (
+            FfiConverterUShort.allocationSize(value.`width`) +
+            FfiConverterUShort.allocationSize(value.`height`) +
+            FfiConverterSequenceUByte.allocationSize(value.`globalPaletteRgb`) +
+            FfiConverterSequenceSequenceUByte.allocationSize(value.`indexedFrames`) +
+            FfiConverterSequenceUByte.allocationSize(value.`delaysCs`) +
+            FfiConverterFloat.allocationSize(value.`paletteStability`) +
+            FfiConverterFloat.allocationSize(value.`meanDeltaE`) +
+            FfiConverterFloat.allocationSize(value.`p95DeltaE`)
+    )
+
+    override fun write(value: QuantizedCubeData, buf: ByteBuffer) {
+            FfiConverterUShort.write(value.`width`, buf)
+            FfiConverterUShort.write(value.`height`, buf)
+            FfiConverterSequenceUByte.write(value.`globalPaletteRgb`, buf)
+            FfiConverterSequenceSequenceUByte.write(value.`indexedFrames`, buf)
+            FfiConverterSequenceUByte.write(value.`delaysCs`, buf)
+            FfiConverterFloat.write(value.`paletteStability`, buf)
+            FfiConverterFloat.write(value.`meanDeltaE`, buf)
+            FfiConverterFloat.write(value.`p95DeltaE`, buf)
     }
 }
 
@@ -1228,6 +1434,31 @@ public object FfiConverterSequenceUShort: FfiConverterRustBuffer<List<kotlin.USh
 
 
 
+public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.String>> {
+    override fun read(buf: ByteBuffer): List<kotlin.String> {
+        val len = buf.getInt()
+        return List<kotlin.String>(len) {
+            FfiConverterString.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.String>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterString.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.String>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterString.write(it, buf)
+        }
+    }
+}
+
+
+
+
 public object FfiConverterSequenceSequenceUByte: FfiConverterRustBuffer<List<List<kotlin.UByte>>> {
     override fun read(buf: ByteBuffer): List<List<kotlin.UByte>> {
         val len = buf.getInt()
@@ -1259,6 +1490,16 @@ public object FfiConverterSequenceSequenceUByte: FfiConverterRustBuffer<List<Lis
     }
     
 
+    @Throws(GifException::class) fun `m2QuantizeForCube`(`frames81Rgba`: List<List<kotlin.UByte>>): QuantizedCubeData {
+            return FfiConverterTypeQuantizedCubeData.lift(
+    uniffiRustCallWithError(GifException) { _status ->
+    UniffiLib.INSTANCE.uniffi_m3gif_fn_func_m2_quantize_for_cube(
+        FfiConverterSequenceSequenceUByte.lower(`frames81Rgba`),_status)
+}
+    )
+    }
+    
+
     @Throws(GifException::class) fun `m3CreateGif89aRgba`(`framesRgba`: List<List<kotlin.UByte>>, `width`: kotlin.UShort, `height`: kotlin.UShort, `delayCs`: kotlin.UShort, `loopForever`: kotlin.Boolean): GifStats {
             return FfiConverterTypeGifStats.lift(
     uniffiRustCallWithError(GifException) { _status ->
@@ -1274,6 +1515,26 @@ public object FfiConverterSequenceSequenceUByte: FfiConverterRustBuffer<List<Lis
     uniffiRustCallWithError(GifException) { _status ->
     UniffiLib.INSTANCE.uniffi_m3gif_fn_func_m3_save_gif_to_file(
         FfiConverterSequenceSequenceUByte.lower(`framesRgba`),FfiConverterUShort.lower(`width`),FfiConverterUShort.lower(`height`),FfiConverterUShort.lower(`delayCs`),FfiConverterString.lower(`outputPath`),_status)
+}
+    )
+    }
+    
+
+    @Throws(GifException::class) fun `m3WriteGifFromCube`(`cube`: QuantizedCubeData, `fpsCs`: kotlin.UByte, `loopForever`: kotlin.Boolean): GifInfo {
+            return FfiConverterTypeGifInfo.lift(
+    uniffiRustCallWithError(GifException) { _status ->
+    UniffiLib.INSTANCE.uniffi_m3gif_fn_func_m3_write_gif_from_cube(
+        FfiConverterTypeQuantizedCubeData.lower(`cube`),FfiConverterUByte.lower(`fpsCs`),FfiConverterBoolean.lower(`loopForever`),_status)
+}
+    )
+    }
+    
+
+    @Throws(GifException::class) fun `validateGifBytes`(`gifBytes`: kotlin.ByteArray): GifValidation {
+            return FfiConverterTypeGifValidation.lift(
+    uniffiRustCallWithError(GifException) { _status ->
+    UniffiLib.INSTANCE.uniffi_m3gif_fn_func_validate_gif_bytes(
+        FfiConverterByteArray.lower(`gifBytes`),_status)
 }
     )
     }
