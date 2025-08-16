@@ -48,6 +48,20 @@ namespace m3gif {
     GifValidation validate_gif_bytes(
         bytes gif_bytes
     );
+    
+    // ==== RGB-ONLY VARIANTS (for memory efficiency) ====
+    
+    // Downscale 729×729 RGB to 81×81 RGB (3 bytes per pixel)
+    [Throws=GifError]
+    bytes m2_downsize_rgb_729_to_81(
+        bytes rgb_729
+    );
+    
+    // Quantize RGB frames (3 bytes per pixel) for cube data
+    [Throws=GifError]
+    QuantizedCubeData m2_quantize_for_cube_rgb(
+        sequence<sequence<u8>> frames_81_rgb
+    );
 };
 
 // ==== ERROR TYPES ====

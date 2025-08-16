@@ -702,6 +702,10 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -717,9 +721,13 @@ internal interface UniffiLib : Library {
         
     }
 
+    fun uniffi_m3gif_fn_func_m2_downsize_rgb_729_to_81(`rgb729`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_m3gif_fn_func_m2_downsize_rgba_729_to_81(`rgba729`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_m3gif_fn_func_m2_quantize_for_cube(`frames81Rgba`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_m3gif_fn_func_m2_quantize_for_cube_rgb(`frames81Rgb`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_m3gif_fn_func_m3_create_gif89a_rgba(`framesRgba`: RustBuffer.ByValue,`width`: Short,`height`: Short,`delayCs`: Short,`loopForever`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -841,9 +849,13 @@ internal interface UniffiLib : Library {
     ): Unit
     fun ffi_m3gif_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_m3gif_checksum_func_m2_downsize_rgb_729_to_81(
+    ): Short
     fun uniffi_m3gif_checksum_func_m2_downsize_rgba_729_to_81(
     ): Short
     fun uniffi_m3gif_checksum_func_m2_quantize_for_cube(
+    ): Short
+    fun uniffi_m3gif_checksum_func_m2_quantize_for_cube_rgb(
     ): Short
     fun uniffi_m3gif_checksum_func_m3_create_gif89a_rgba(
     ): Short
@@ -870,10 +882,16 @@ private fun uniffiCheckContractApiVersion(lib: UniffiLib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: UniffiLib) {
+    if (lib.uniffi_m3gif_checksum_func_m2_downsize_rgb_729_to_81() != 1908.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_m3gif_checksum_func_m2_downsize_rgba_729_to_81() != 18380.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_m3gif_checksum_func_m2_quantize_for_cube() != 55965.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_m3gif_checksum_func_m2_quantize_for_cube_rgb() != 43662.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_m3gif_checksum_func_m3_create_gif89a_rgba() != 44077.toShort()) {
@@ -1480,6 +1498,16 @@ public object FfiConverterSequenceSequenceUByte: FfiConverterRustBuffer<List<Lis
         }
     }
 }
+    @Throws(GifException::class) fun `m2DownsizeRgb729To81`(`rgb729`: kotlin.ByteArray): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(GifException) { _status ->
+    UniffiLib.INSTANCE.uniffi_m3gif_fn_func_m2_downsize_rgb_729_to_81(
+        FfiConverterByteArray.lower(`rgb729`),_status)
+}
+    )
+    }
+    
+
     @Throws(GifException::class) fun `m2DownsizeRgba729To81`(`rgba729`: kotlin.ByteArray): kotlin.ByteArray {
             return FfiConverterByteArray.lift(
     uniffiRustCallWithError(GifException) { _status ->
@@ -1495,6 +1523,16 @@ public object FfiConverterSequenceSequenceUByte: FfiConverterRustBuffer<List<Lis
     uniffiRustCallWithError(GifException) { _status ->
     UniffiLib.INSTANCE.uniffi_m3gif_fn_func_m2_quantize_for_cube(
         FfiConverterSequenceSequenceUByte.lower(`frames81Rgba`),_status)
+}
+    )
+    }
+    
+
+    @Throws(GifException::class) fun `m2QuantizeForCubeRgb`(`frames81Rgb`: List<List<kotlin.UByte>>): QuantizedCubeData {
+            return FfiConverterTypeQuantizedCubeData.lift(
+    uniffiRustCallWithError(GifException) { _status ->
+    UniffiLib.INSTANCE.uniffi_m3gif_fn_func_m2_quantize_for_cube_rgb(
+        FfiConverterSequenceSequenceUByte.lower(`frames81Rgb`),_status)
 }
     )
     }

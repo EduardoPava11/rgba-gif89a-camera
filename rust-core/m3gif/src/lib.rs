@@ -361,6 +361,9 @@ fn calculate_min_code_size(palette_size: usize) -> u8 {
 
 /// High-quality downscale from 729×729 to 81×81 using Lanczos3 filter (PANIC-SAFE)
 pub fn m2_downsize_rgba_729_to_81(rgba_729: Vec<u8>) -> Result<Vec<u8>, GifError> {
+    // Log the downscaling method being used
+    log::info!("M2_DOWNSCALE_START method=Lanczos3 input=729x729 output=81x81");
+    
     std::panic::catch_unwind(|| inner_downsize_rgba_729_to_81(rgba_729))
         .map_err(|_| GifError::EncodingError("Internal panic during downsize".to_string()))?
 }
@@ -396,6 +399,8 @@ fn inner_downsize_rgba_729_to_81(rgba_729: Vec<u8>) -> Result<Vec<u8>, GifError>
     
     // Convert back to raw RGBA bytes
     let output = resized.into_raw();
+    
+    log::info!("M2_DOWNSCALE_DONE method=Lanczos3 output_size={}", output.len());
     
     // Log statistics for first few frames (thread-safe)
     static FRAME_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -695,6 +700,103 @@ mod tests {
         assert_eq!(palette.len(), 12); // 4 colors * 3 bytes
         assert_eq!(indices.len(), 4);  // 4 pixels
     }
+    
+    #[test]
+    fn test_nn_downsizes_729_to_81() {
+        // Initialize logger for test
+        let _ = env_logger::builder()
+            .filter_level(log::LevelFilter::Info)
+            .try_init();
+        
+        // Create 729×729 RGBA test frame (all red for simplicity)
+        let input = vec![255u8, 0, 0, 255].repeat(729 * 729);
+        assert_eq!(input.len(), 729 * 729 * 4);
+        
+        // Call the downscaler
+        let output = m2_downsize_rgba_729_to_81(input).expect("Downscale should succeed");
+        
+        // Verify output dimensions
+        assert_eq!(output.len(), 81 * 81 * 4, "Output should be 81×81 RGBA");
+        
+        // Verify the first pixel is red (allowing for some interpolation variance)
+        assert!(output[0] > 250, "Red channel should be preserved");
+        assert!(output[1] < 5, "Green should be near 0");
+        assert!(output[2] < 5, "Blue should be near 0");
+        assert_eq!(output[3], 255, "Alpha should be 255");
+        
+        println!("✅ Neural downsizer test passed: 729×729 → 81×81");
+    }
+}
+
+// ==== RGB-ONLY FUNCTIONS ====
+
+/// Downscale 729×729 RGB to 81×81 RGB (3 bytes per pixel)
+pub fn m2_downsize_rgb_729_to_81(rgb_729: Vec<u8>) -> Result<Vec<u8>, GifError> {
+    const INPUT_SIZE: usize = 729;
+    const OUTPUT_SIZE: usize = 81;
+    
+    // Validate input is RGB (3 bytes per pixel)
+    if rgb_729.len() != INPUT_SIZE * INPUT_SIZE * 3 {
+        return Err(GifError::InvalidDimensions(
+            format!("Expected {} RGB bytes, got {}", INPUT_SIZE * INPUT_SIZE * 3, rgb_729.len())
+        ));
+    }
+    
+    log::info!("M2_DOWNSCALE_RGB_START input=729x729x3 output=81x81x3");
+    
+    // Convert RGB to RGBA for processing (add alpha=255)
+    let mut rgba_729 = Vec::with_capacity(INPUT_SIZE * INPUT_SIZE * 4);
+    for chunk in rgb_729.chunks(3) {
+        rgba_729.push(chunk[0]); // R
+        rgba_729.push(chunk[1]); // G
+        rgba_729.push(chunk[2]); // B
+        rgba_729.push(255);       // A
+    }
+    
+    // Use existing RGBA downscaler
+    let rgba_81 = m2_downsize_rgba_729_to_81(rgba_729)?;
+    
+    // Strip alpha channel from result
+    let mut rgb_81 = Vec::with_capacity(OUTPUT_SIZE * OUTPUT_SIZE * 3);
+    for chunk in rgba_81.chunks(4) {
+        rgb_81.push(chunk[0]); // R
+        rgb_81.push(chunk[1]); // G
+        rgb_81.push(chunk[2]); // B
+        // Skip alpha
+    }
+    
+    log::info!("M2_DOWNSCALE_RGB_DONE output_size={}", rgb_81.len());
+    Ok(rgb_81)
+}
+
+/// Quantize RGB frames to create palette and indexed cube data
+pub fn m2_quantize_for_cube_rgb(frames_81_rgb: Vec<Vec<u8>>) -> Result<QuantizedCubeData, GifError> {
+    if frames_81_rgb.is_empty() {
+        return Err(GifError::InvalidFrameCount(0));
+    }
+    
+    // Convert RGB frames to RGBA
+    let mut frames_81_rgba = Vec::with_capacity(frames_81_rgb.len());
+    for rgb_frame in frames_81_rgb {
+        if rgb_frame.len() != 81 * 81 * 3 {
+            return Err(GifError::InvalidDimensions(
+                format!("Expected {} RGB bytes per frame, got {}", 81 * 81 * 3, rgb_frame.len())
+            ));
+        }
+        
+        // Add alpha channel
+        let mut rgba_frame = Vec::with_capacity(81 * 81 * 4);
+        for chunk in rgb_frame.chunks(3) {
+            rgba_frame.push(chunk[0]); // R
+            rgba_frame.push(chunk[1]); // G
+            rgba_frame.push(chunk[2]); // B
+            rgba_frame.push(255);       // A
+        }
+        frames_81_rgba.push(rgba_frame);
+    }
+    
+    // Use existing RGBA quantizer
+    m2_quantize_for_cube(frames_81_rgba)
 }
 
 // UniFFI scaffolding - must be at the end

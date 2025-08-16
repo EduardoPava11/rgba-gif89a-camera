@@ -31,6 +31,9 @@ android_logger = "0.13"
 [build-dependencies]
 uniffi = { version = "=0.27.1", features = ["build"] }
 
+[dev-dependencies]
+env_logger = "0.10"
+
 [profile.release]
 opt-level = 3
 lto = true

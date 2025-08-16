@@ -337,11 +337,10 @@ class M2Processor {
         
         val result = if (rustAvailable) {
             try {
-                // Use Rust high-quality Lanczos3 downscaling
+                // Use Rust high-quality Lanczos3 downscaling via UniFFI
                 Log.d(TAG, "M2_DOWNSCALE using Rust Lanczos3 filter")
-                // TODO: Fix UniFFI call when library is available
-                // For now, use fallback to prevent red channel overflow
-                manualDownsize(rgba729, 729, 729, 81, 81)
+                val downscaled = uniffi.m3gif.m2DownsizeRgba729To81(rgba729)
+                downscaled
             } catch (e: Exception) {
                 Log.w(TAG, "Rust downscaling failed, using fallback: ${e.message}")
                 manualDownsize(rgba729, 729, 729, 81, 81)
