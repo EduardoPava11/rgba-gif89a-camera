@@ -1,0 +1,33 @@
+# Git LFS configuration for 81×81×81 cube vision golden tests
+#
+# Golden test fixtures are large binary files that validate:
+# - Complete M1→M2→M3 pipeline determinism
+# - 81-frame cube structure integrity  
+# - Quantization quality thresholds
+# - GIF89a encoding compliance
+#
+# These fixtures ensure production reliability across:
+# - Rust core pipeline changes
+# - Android integration updates
+# - CI/CD environment variations
+
+# Golden test input frames (81×81×3 RGB JSON serialized)
+rust-core/tests/fixtures/golden/*.json filter=lfs diff=lfs merge=lfs -text
+
+# Expected output GIF files for hash validation
+rust-core/tests/fixtures/golden/*.gif filter=lfs diff=lfs merge=lfs -text
+
+# Binary test data for property testing
+rust-core/tests/fixtures/golden/*.bin filter=lfs diff=lfs merge=lfs -text
+
+# Neural model weights for M1 downsampling tests
+rust-core/assets/*.bin filter=lfs diff=lfs merge=lfs -text
+
+# Large test datasets for performance benchmarks
+rust-core/tests/fixtures/perf/*.json filter=lfs diff=lfs merge=lfs -text
+rust-core/tests/fixtures/perf/*.gif filter=lfs diff=lfs merge=lfs -text
+
+# Documentation assets (screenshots, demo GIFs)
+docs/assets/*.gif filter=lfs diff=lfs merge=lfs -text
+docs/assets/*.png filter=lfs diff=lfs merge=lfs -text
+docs/assets/*.jpg filter=lfs diff=lfs merge=lfs -text

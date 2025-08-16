@@ -16,8 +16,8 @@ impl Default for QuantizeOptions {
 
 pub fn quantize_rgba_frames(
     frames: &[Vec<u8>],
-    width: u32,
-    height: u32,
+    _width: u32,
+    _height: u32,
     options: Option<QuantizeOptions>,
 ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
     let options = options.unwrap_or_default();

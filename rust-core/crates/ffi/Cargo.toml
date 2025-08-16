@@ -1,0 +1,32 @@
+[package]
+name = "ffi"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "generate_bindings"
+path = "src/bin/generate_bindings.rs"
+
+[dependencies]
+common-types = { path = "../common-types", features = ["ffi"] }
+m2-quant = { path = "../m2-quant" }
+m3-gif = { path = "../m3-gif" }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "json", "env-filter", "registry"] }
+tracing-android = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1.0"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+uniffi = "0.28"
+uniffi_bindgen = "0.28"
+
+[build-dependencies]
+uniffi = { version = "0.28", features = ["build"] }
+
+[dev-dependencies]
+sha2 = "0.10"
+tempfile = "3.0"
+proptest = "1.0"
+criterion = "0.5"

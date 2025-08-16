@@ -1,5 +1,4 @@
 use anyhow::Result;
-use log::info;
 
 pub mod cbor_v2;
 pub mod downscale;

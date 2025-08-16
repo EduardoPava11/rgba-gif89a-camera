@@ -592,7 +592,7 @@ fn inner_save_gif_to_file(
             .map_err(|e| GifError::IoError(format!("Failed to create directory: {}", e)))?;
     }
     
-    let method = QuantizationMethod::NeuQuant {
+    let _method = QuantizationMethod::NeuQuant {
         colors: 256,
         sample_fac: 10,
     };

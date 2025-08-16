@@ -1,41 +1,86 @@
-[package]
-name = "gifpipe"
+[workspace]
+members = [
+    # New modular architecture (Strategy-B refactored)
+    "crates/common-types",
+    "crates/m2-quant",
+    "crates/m3-gif",
+    "crates/ffi",
+    
+    # Bevy cube viewer (Phase 2)
+    "cube_viewer_bevy",
+    
+    # Validation tools
+    "validate_cube",
+    
+    # Legacy crates (maintained for backward compatibility)
+    "m3gif-core",
+    "m2down",
+    "m1fast",
+    "m3gif",
+]
+
+# Exclude old FFI implementation that conflicts with new modular FFI
+exclude = [
+    "gifpipe-ffi"  # Superseded by crates/ffi with structured logging
+]
+
+resolver = "2"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
+authors = ["Daniel"]
 
-[lib]
-crate-type = ["cdylib", "staticlib", "rlib"]
-name = "m3gif"
+[workspace.dependencies]
+# New modular crates
+common-types = { path = "./crates/common-types" }
+m2-quant = { path = "./crates/m2-quant" }
+m3-gif = { path = "./crates/m3-gif" }
+ffi = { path = "./crates/ffi" }
 
-[dependencies]
-# UniFFI
-uniffi = { version = "0.28", features = ["cli"] }
+# Tracing and structured logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1.0", features = ["v4"] }
 
-# Image processing - Now from core
+# Internal crates (legacy)
 m3gif-core = { path = "./m3gif-core" }
 
-# Serialization (keeping for backward compatibility)
+# UniFFI for FFI bindings
+uniffi = { version = "0.28", features = ["cli"] }
+
+# Image processing  
+image = { version = "0.24", default-features = false, features = ["png"] }
+gif = "0.13"
+color_quant = "1.1"
+imagequant = "4.0"  # Global palette quantization for Strategy-B M2B
+
+# Neural network framework for Strategy-B M2
+burn = { version = "0.18", default-features = false, features = ["ndarray", "std"] }
+burn-ndarray = { version = "0.18" }
+
+# Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_cbor = "0.11"
 serde_bytes = "0.11"
 ciborium = "0.2"
+serde_json = "1.0"
 
 # Utilities
 anyhow = "1.0"
 log = "0.4"
 thiserror = "1.0"
 android_logger = "0.14"
+env_logger = "0.10"
+rand = "0.8"
 
 # Crypto/verification
 sha2 = "0.10"
 crc32fast = "1.4"
 
-[build-dependencies]
-uniffi = { version = "0.28", features = ["build"] }
-
-[[bin]]
-name = "uniffi-bindgen"
-path = "uniffi-bindgen.rs"
+# Bevy for cube viewer
+bevy = { version = "0.12", default-features = false }
+clap = { version = "4.0", features = ["derive"] }
 
 [profile.release]
 opt-level = 3

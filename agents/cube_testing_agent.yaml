@@ -1,0 +1,143 @@
+name: cube_testing_agent
+version: "1.0"
+type: validator
+domain: cube_coherence_testing
+
+system_prompt: |
+  You are a specialized testing agent for the 81×81×81 GIF cube vision.
+  Your role is to validate:
+  1. Global palette is truly shared across all 81 frames
+  2. Temporal coherence (minimal palette drift)
+  3. Quantized frames are suitable for cube visualization
+  4. Color distribution is perceptually balanced
+  
+  Key invariants:
+  - Exactly 81 frames at 81×81 pixels
+  - Single global palette ≤256 colors
+  - All frame indices reference valid palette entries
+  - Palette stability >0.85 for static scenes
+
+tools:
+  - name: Task
+    subagent_type: general-purpose
+    description: "Analyze quantized cube data"
+  
+  - name: Read
+    paths:
+      - "rust-core/crates/m2-quant/tests/"
+      - "fixtures/golden/"
+  
+  - name: Bash
+    commands:
+      - "cargo test -p m2-quant test_global_palette"
+      - "cargo test -p m2-quant test_temporal_coherence"
+      - "cargo run --bin validate_cube"
+
+tests:
+  global_palette_validation:
+    description: "Verify all 81 frames use the same palette"
+    steps:
+      - Load QuantizedCubeData from test fixture
+      - For each frame, verify all indices < palette.len()
+      - Calculate palette usage across all frames
+      - Assert >80% of palette colors are used globally
+    
+  temporal_coherence:
+    description: "Measure frame-to-frame stability"
+    steps:
+      - Load consecutive frame pairs
+      - Calculate histogram difference
+      - Assert <10% pixels change color between frames
+      - Verify palette_stability metric >0.85
+  
+  cube_preview_compatibility:
+    description: "Ensure data works with CubeVisualizationScreen"
+    steps:
+      - Export QuantizedCubeData as JSON
+      - Verify format matches Kotlin data classes
+      - Check indexed frames are valid byte arrays
+      - Validate palette is RGB triplets
+
+acceptance_criteria:
+  - metric: palette_size
+    operator: lte
+    value: 256
+    description: "Global palette must have ≤256 colors"
+  
+  - metric: frame_count
+    operator: eq
+    value: 81
+    description: "Must have exactly 81 frames"
+  
+  - metric: frame_dimensions
+    operator: eq
+    value: [81, 81]
+    description: "Each frame must be 81×81 pixels"
+  
+  - metric: palette_stability
+    operator: gte
+    value: 0.85
+    description: "Temporal stability must be ≥0.85"
+  
+  - metric: mean_delta_e
+    operator: lt
+    value: 2.0
+    description: "Mean perceptual error must be <2.0"
+  
+  - metric: p95_delta_e
+    operator: lt
+    value: 5.0
+    description: "95th percentile error must be <5.0"
+  
+  - metric: palette_utilization
+    operator: gte
+    value: 0.8
+    description: "At least 80% of palette colors must be used"
+
+workflows:
+  validate_production_cube:
+    description: "Full validation of production cube data"
+    steps:
+      - name: "Load cube data"
+        action: "Read JSON file containing QuantizedCubeData"
+      
+      - name: "Structural validation"
+        action: "Check frame count, dimensions, palette size"
+        assertions:
+          - "cube_data.indexed_frames.len() == 81"
+          - "cube_data.global_palette.len() <= 256"
+          - "all frames are 81×81"
+      
+      - name: "Palette validation"
+        action: "Verify global palette usage"
+        assertions:
+          - "All indices valid"
+          - "Palette utilization > 80%"
+      
+      - name: "Temporal validation"
+        action: "Check frame-to-frame coherence"
+        assertions:
+          - "palette_stability > 0.85"
+          - "max_drift < 0.1"
+      
+      - name: "Quality validation"
+        action: "Check perceptual error metrics"
+        assertions:
+          - "mean_delta_e < 2.0"
+          - "p95_delta_e < 5.0"
+      
+      - name: "Export validation"
+        action: "Verify JSON serialization"
+        assertions:
+          - "JSON round-trip preserves data"
+          - "Format compatible with Kotlin"
+
+mcp:
+  server: "agents/mcp_cube_server.py"
+  tools:
+    - validate_palette
+    - measure_temporal_drift
+    - validate_cube_structure
+    - run_cube_tests
+    - generate_test_cube
+    - compare_cubes

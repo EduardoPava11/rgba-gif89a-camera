@@ -1,0 +1,13 @@
+[package]
+name = "m3-gif"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+common-types = { path = "../common-types" }
+gif = "0.13.1"
+tracing = "0.1"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3.8"

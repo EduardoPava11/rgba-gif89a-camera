@@ -1,0 +1,13 @@
+[package]
+name = "cube_viewer_bevy"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = "0.12"
+common-types = { path = "../crates/common-types", features = ["bevy"] }
+serde_json = "1.0"
+clap = { version = "4.0", features = ["derive"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = "0.5"
