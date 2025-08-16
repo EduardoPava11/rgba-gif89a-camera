@@ -66,6 +66,7 @@ impl Default for QuantizationMethod {
 
 /// Quantize RGBA data to indexed color with palette
 /// Returns (RGB palette, indices)
+/// Enhanced with scene change detection and adaptive fallbacks
 pub fn quantize_rgba_to_lct(
     rgba: &[u8],
     width: u16,
