@@ -54,6 +54,18 @@ fun SimpleGifScreen(
     cameraManager: CameraXManager,
     exportManager: GifExportManager
 ) {
+    var quantizedCubeData by remember { mutableStateOf<uniffi.m3gif.QuantizedCubeData?>(null) }
+    var showPalette by remember { mutableStateOf(false) }
+    
+    // Show palette screen if requested
+    if (showPalette) {
+        PaletteScreen(
+            quantizedCubeData = quantizedCubeData,
+            onBack = { showPalette = false }
+        )
+        return
+    }
+    
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
@@ -149,6 +161,7 @@ fun SimpleGifScreen(
                         GifCompleteButtons(
                             gifFile = file,
                             exportManager = exportManager,
+                            onViewPalette = { showPalette = true },
                             onReset = {
                                 state = GifState.IDLE
                                 progress = 0f
@@ -156,6 +169,7 @@ fun SimpleGifScreen(
                                 capturedFrames.clear()
                                 framesCaptured = 0
                                 gifFile = null
+                                quantizedCubeData = null
                             }
                         )
                     }
@@ -298,50 +312,68 @@ private fun ProcessingIndicator(
 private fun GifCompleteButtons(
     gifFile: File,
     exportManager: GifExportManager,
+    onViewPalette: () -> Unit,
     onReset: () -> Unit
 ) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // View GIF button
-        Button(
-            onClick = {
-                // Open GIF in viewer - just share for now
-                exportManager.shareGif(gifFile)
-            },
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MatrixGreen
-            )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Icon(Icons.Default.PlayArrow, contentDescription = "View")
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("View GIF")
-        }
-        
-        // Share button
-        Button(
-            onClick = {
-                exportManager.shareGif(gifFile)
-            },
-            colors = ButtonDefaults.buttonColors(
-                containerColor = ProcessingOrange
-            )
-        ) {
-            Icon(Icons.Default.Share, contentDescription = "Share")
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Share")
+            // View GIF button
+            Button(
+                onClick = {
+                    exportManager.shareGif(gifFile)
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MatrixGreen
+                )
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = "View")
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("View")
+            }
+            
+            // Palette button
+            Button(
+                onClick = onViewPalette,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF9C27B0) // Purple
+                )
+            ) {
+                Icon(Icons.Default.Palette, contentDescription = "Palette")
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Palette")
+            }
+            
+            // Share button
+            Button(
+                onClick = {
+                    exportManager.shareGif(gifFile)
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ProcessingOrange
+                )
+            ) {
+                Icon(Icons.Default.Share, contentDescription = "Share")
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Share")
+            }
         }
         
         // New button
         Button(
             onClick = onReset,
+            modifier = Modifier.fillMaxWidth(0.5f),
             colors = ButtonDefaults.buttonColors(
                 containerColor = Color.Gray
             )
         ) {
             Icon(Icons.Default.Refresh, contentDescription = "New")
             Spacer(modifier = Modifier.width(8.dp))
-            Text("New")
+            Text("New GIF")
         }
     }
 }
