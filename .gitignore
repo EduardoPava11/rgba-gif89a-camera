@@ -1,5 +1,6 @@
 # Built application files
 *.apk
+!rgba-gif89a-camera.apk
 *.aar
 *.ap_
 *.aab
